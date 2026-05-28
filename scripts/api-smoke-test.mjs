@@ -112,7 +112,12 @@ async function run() {
     record(
       "/api/source-diagnostics",
       "pass",
-      diagnostics.diagnostics.map((item) => `${item.source}:${item.status}`).join(", "),
+      diagnostics.diagnostics
+        .map((item) => {
+          const counts = `${item.usableCount}/${item.rawCount}`;
+          return `${item.source}:${item.status} usable/raw=${counts}${item.message ? ` (${item.message})` : ""}`;
+        })
+        .join(", "),
     );
 
     const candidatePlaces = places.places.slice(0, 3);
