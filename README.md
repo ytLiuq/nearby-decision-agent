@@ -39,6 +39,14 @@ npm run dev
 
 打开 Vite 输出的本地地址即可使用。API key 只在 Vite 服务端插件中读取，不会暴露给前端。
 
+## 接口测试
+
+```bash
+npm run test:api
+```
+
+该命令会临时启动 Vite API server，并依次检查 `/api/status`、`/api/places`、`/api/weather`、`/api/source-diagnostics`、`/api/enrich` 和 `/api/decision`。输出里会标注每个接口是否返回了合法 JSON、使用的真实源或兜底源，以及候选数量；不会打印任何 API key。
+
 ## 项目结构
 
 - `src/`：浏览器端 React 应用、领域类型、前端推荐打分和 API client。
