@@ -11,7 +11,7 @@
 - Tavily：`/api/enrich` 使用 `TAVILY_API_KEY` 搜索公开网页口碑线索。
 - Exa：`/api/enrich` 使用 `EXA_API_KEY` 搜索公开网页口碑线索。
 - Bing Search：`/api/enrich` 仍保留 `BING_SEARCH_KEY` 兼容入口；如果你没有可用的 Azure Bing Search 资源，可以先不配置。
-- OpenAI：`/api/decision` 使用 `OPENAI_API_KEY` 做最终 Agent 决策，失败时自动回退到规则决策。
+- OpenAI-compatible 模型：`/api/decision` 使用 `OPENAI_API_KEY`、`OPENAI_BASE_URL` 和 `OPENAI_MODEL` 做最终 Agent 决策，失败时自动回退到规则决策。DeepSeek 可配置为 `https://api.deepseek.com` 和 `deepseek-v4-flash`。
 
 小红书 MCP 和 Cookie 接入已移除。搜索结果里如果命中公开的小红书、美团或大众点评网页，卡片仍会按平台标注链接来源。
 
@@ -27,7 +27,8 @@ TAVILY_API_KEY=your_tavily_api_key
 BING_SEARCH_KEY=your_bing_search_api_key
 EXA_API_KEY=your_exa_api_key
 OPENAI_API_KEY=your_openai_api_key
-OPENAI_MODEL=gpt-4.1-mini
+OPENAI_BASE_URL=https://api.deepseek.com
+OPENAI_MODEL=deepseek-v4-flash
 ```
 
 ## 本地运行

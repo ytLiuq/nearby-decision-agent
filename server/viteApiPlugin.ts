@@ -129,6 +129,7 @@ export function createNearbyApiPlugin(env: Record<string, string>): Plugin[] {
     decisionPlugin({
       openaiApiKey: env.OPENAI_API_KEY,
       openaiModel: env.OPENAI_MODEL || "gpt-4.1-mini",
+      openaiBaseUrl: env.OPENAI_BASE_URL || "https://api.openai.com",
     }),
   ];
 }
@@ -811,7 +812,7 @@ type AgentDecision = {
   followUpQuestion?: string;
 };
 
-function decisionPlugin(config: { openaiApiKey?: string; openaiModel: string }): Plugin {
+function decisionPlugin(config: { openaiApiKey?: string; openaiModel: string; openaiBaseUrl: string }): Plugin {
   return {
     name: "nearby-agent-decision",
     configureServer(server) {
@@ -852,7 +853,7 @@ function decisionPlugin(config: { openaiApiKey?: string; openaiModel: string }):
 }
 
 async function callOpenAIDecision(
-  config: { openaiApiKey?: string; openaiModel: string },
+  config: { openaiApiKey?: string; openaiModel: string; openaiBaseUrl: string },
   places: NormalizedPlace[],
   input?: DecisionInput,
   weather?: WeatherContext,
@@ -921,13 +922,24 @@ async function callOpenAIDecision(
       },
     };
 
-    const response = await fetch("https://api.openai.com/v1/responses", {
+    const apiBaseUrl = config.openaiBaseUrl.replace(/\/+$/, "");
+    const chatCompletionsUrl = apiBaseUrl.includes("api.deepseek.com") && !apiBaseUrl.endsWith("/v1")
+      ? `${apiBaseUrl}/chat/completions`
+      : `${apiBaseUrl}/v1/chat/completions`;
+    const chatPayload = {
+      model: config.openaiModel,
+      messages: payload.input,
+      response_format: { type: "json_object" },
+      temperature: 0.2,
+    };
+
+    const response = await fetch(chatCompletionsUrl, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${config.openaiApiKey}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify(payload),
+      body: JSON.stringify(chatPayload),
     });
 
     if (!response.ok) return fallback ?? buildRuleDecision(places, input, weather);
@@ -935,9 +947,11 @@ async function callOpenAIDecision(
     const json = (await response.json()) as {
       output_text?: string;
       output?: Array<{ content?: Array<{ text?: string; type?: string }> }>;
+      choices?: Array<{ message?: { content?: string } }>;
     };
     const text =
       json.output_text ||
+      json.choices?.[0]?.message?.content ||
       json.output
         ?.flatMap((item) => item.content ?? [])
         .map((item) => item.text ?? "")
