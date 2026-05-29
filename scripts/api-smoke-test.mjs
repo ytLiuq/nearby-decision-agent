@@ -93,6 +93,8 @@ async function run() {
     assertShape(Array.isArray(places.places), "/api/places should return places[]");
     assertShape(typeof places.source === "string", "/api/places should return source");
     const placesDetail = [`source: ${places.source}`, `count: ${places.places.length}`];
+    const routedCount = places.places.filter((place) => place.routeSource === "amap-walking").length;
+    if (routedCount) placesDetail.push(`walking routes: ${routedCount}`);
     if (places.providers?.length) placesDetail.push(`providers: ${places.providers.join(", ")}`);
     if (places.message) placesDetail.push(places.message);
     record("/api/places", "pass", placesDetail.join(" | "));

@@ -45,6 +45,11 @@ export type Place = {
   dataWarnings?: string[];
   qualityReasons?: string[];
   qualityPenalties?: string[];
+  longitude?: number;
+  latitude?: number;
+  routeDistanceMeters?: number;
+  routeDurationMinutes?: number;
+  routeSource?: "amap-walking";
   enrichment?: ReviewEnrichment;
 };
 

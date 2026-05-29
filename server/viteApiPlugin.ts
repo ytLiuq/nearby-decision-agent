@@ -20,6 +20,7 @@ type AmapPoi = {
   name?: string;
   type?: string;
   address?: string | string[];
+  location?: string;
   distance?: string;
   tel?: string;
   business?: {
@@ -34,6 +35,16 @@ type AmapResponse = {
   status: string;
   info?: string;
   pois?: AmapPoi[];
+};
+
+type AmapWalkingResponse = {
+  status: string;
+  route?: {
+    paths?: Array<{
+      distance?: string;
+      duration?: string;
+    }>;
+  };
 };
 
 
@@ -58,6 +69,11 @@ type NormalizedPlace = {
   dataWarnings?: string[];
   qualityReasons?: string[];
   qualityPenalties?: string[];
+  longitude?: number;
+  latitude?: number;
+  routeDistanceMeters?: number;
+  routeDurationMinutes?: number;
+  routeSource?: "amap-walking";
 };
 
 type DecisionInput = {
@@ -419,7 +435,8 @@ async function fetchAmapPlaces(apiKey: string, intent: Intent, location: string)
   const payload = (await amapResponse.json()) as AmapResponse;
   if (payload.status !== "1") return [];
 
-  return (payload.pois ?? []).map((poi) => normalizeAmapPoi(poi, intent));
+  const places = (payload.pois ?? []).map((poi) => normalizeAmapPoi(poi, intent));
+  return enrichAmapWalkingRoutes(apiKey, location, places);
 }
 
 function normalizeAmapPoi(poi: AmapPoi, intent: Intent): NormalizedPlace {
@@ -428,6 +445,7 @@ function normalizeAmapPoi(poi: AmapPoi, intent: Intent): NormalizedPlace {
   const rating = Number(poi.business?.rating ?? "4.2");
   const address = Array.isArray(poi.address) ? poi.address.join("") : poi.address;
   const categories = splitCategories(poi.business?.tag || poi.type);
+  const poiLocation = parseOptionalLngLat(poi.location);
 
   return {
     id: `amap-${poi.id ?? poi.name ?? Math.random()}`,
@@ -450,7 +468,54 @@ function normalizeAmapPoi(poi: AmapPoi, intent: Intent): NormalizedPlace {
     phone: poi.tel,
     categories,
     recommendedDishes: categories.slice(0, 4),
+    longitude: poiLocation.lng,
+    latitude: poiLocation.lat,
   };
+}
+
+async function enrichAmapWalkingRoutes(apiKey: string, origin: string, places: NormalizedPlace[]) {
+  const routed = await Promise.allSettled(
+    places.map(async (place, index) => {
+      if (index >= 12) return place;
+      if (place.longitude === undefined || place.latitude === undefined) return place;
+      const route = await fetchAmapWalkingRoute(apiKey, origin, `${place.longitude},${place.latitude}`);
+      if (!route) return place;
+
+      const routeMinutes = Math.max(1, Math.round(route.durationSeconds / 60));
+      const routeNote = `高德步行路线约 ${routeMinutes} 分钟，距离 ${route.distanceMeters} 米`;
+
+      return {
+        ...place,
+        distanceMinutes: routeMinutes,
+        routeDistanceMeters: route.distanceMeters,
+        routeDurationMinutes: routeMinutes,
+        routeSource: "amap-walking" as const,
+        notes: [routeNote, ...place.notes.filter((note) => !note.includes("高德步行路线约"))].slice(0, 4),
+      };
+    }),
+  );
+
+  return routed.map((result, index) => (result.status === "fulfilled" ? result.value : places[index]));
+}
+
+async function fetchAmapWalkingRoute(apiKey: string, origin: string, destination: string) {
+  const routeUrl = new URL("https://restapi.amap.com/v3/direction/walking");
+  routeUrl.searchParams.set("key", apiKey);
+  routeUrl.searchParams.set("origin", origin);
+  routeUrl.searchParams.set("destination", destination);
+  routeUrl.searchParams.set("output", "json");
+
+  const response = await fetch(routeUrl);
+  const payload = (await response.json()) as AmapWalkingResponse;
+  const path = payload.route?.paths?.[0];
+  const distanceMeters = Number(path?.distance ?? "0");
+  const durationSeconds = Number(path?.duration ?? "0");
+
+  if (payload.status !== "1" || !Number.isFinite(distanceMeters) || !Number.isFinite(durationSeconds) || distanceMeters <= 0 || durationSeconds <= 0) {
+    return undefined;
+  }
+
+  return { distanceMeters, durationSeconds };
 }
 
 function mergePlaces(places: NormalizedPlace[], intent: Intent, budget = 0) {
@@ -556,6 +621,7 @@ function getPlaceQualityReasons(place: NormalizedPlace, intent: Intent, budget =
   if ((place.categories ?? []).length) reasons.push("分类信息完整");
   if (place.source === "merged") reasons.push("多源 POI 交叉命中");
   else if (place.source === "amap") reasons.push("高德 POI 详情较完整");
+  if (place.routeSource === "amap-walking") reasons.push("已用高德步行路线校准时间");
   if (place.phone) reasons.push("有联系电话");
   if (place.openUntil && place.openUntil !== "营业时间待确认") reasons.push("有营业时间线索");
   return reasons.slice(0, 6);
@@ -896,6 +962,8 @@ async function callOpenAIDecision(
               name: place.name,
               address: place.address,
               distanceMinutes: place.distanceMinutes,
+              routeDistanceMeters: place.routeDistanceMeters,
+              routeDurationMinutes: place.routeDurationMinutes,
               avgPrice: place.avgPrice,
               rating: place.rating,
               categories: place.categories,
@@ -1194,6 +1262,15 @@ function parseLngLat(location: string) {
     lng: Number(lngRaw) || 116.397428,
     lat: Number(latRaw) || 39.90923,
   };
+}
+
+function parseOptionalLngLat(location?: string) {
+  if (!location) return {};
+  const [lngRaw, latRaw] = location.split(",");
+  const lng = Number(lngRaw);
+  const lat = Number(latRaw);
+  if (!Number.isFinite(lng) || !Number.isFinite(lat)) return {};
+  return { lng, lat };
 }
 
 function cleanAddress(address?: string) {
