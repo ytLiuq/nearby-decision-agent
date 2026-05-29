@@ -317,7 +317,9 @@ async function fetchTencentPlaces(apiKey: string, intent: Intent, location: stri
 
   const tencentResponse = await fetch(tencentUrl);
   const payload = (await tencentResponse.json()) as TencentResponse;
-  if (payload.status !== 0) return [];
+  if (payload.status !== 0) {
+    throw new Error(`Tencent Maps API ${payload.status}: ${payload.message ?? "unknown error"}`);
+  }
 
   return (payload.data ?? []).map((poi) => normalizeTencentPoi(poi, intent));
 }
@@ -337,7 +339,10 @@ async function fetchFoursquarePlaces(apiKey: string, intent: Intent, location: s
       Authorization: apiKey,
     },
   });
-  if (!fsqResponse.ok) return [];
+  if (!fsqResponse.ok) {
+    const errorText = await fsqResponse.text();
+    throw new Error(`Foursquare API ${fsqResponse.status}: ${errorText.slice(0, 180)}`);
+  }
 
   const payload = (await fsqResponse.json()) as FoursquareResponse;
   return (payload.results ?? []).map((place) => normalizeFoursquarePlace(place, intent));
