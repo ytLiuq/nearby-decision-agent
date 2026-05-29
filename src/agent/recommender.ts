@@ -55,7 +55,7 @@ export function getEffectiveInput(input: DecisionInput): DecisionInput {
     ...input,
     people: parsed.people ?? input.people,
     budget: parsed.budget ?? input.budget,
-    intent: parsed.intent ?? input.intent,
+    intent: input.intent,
     moods: Array.from(new Set([...(parsed.moods ?? []), ...input.moods])),
   };
 }

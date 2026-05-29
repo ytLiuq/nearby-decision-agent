@@ -134,6 +134,34 @@ input {
   padding: 0 12px;
 }
 
+.location-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 44px;
+  gap: 8px;
+}
+
+.icon-action {
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  border: 1px solid #cdc5b2;
+  border-radius: 8px;
+  color: #244f43;
+  background: #ffffff;
+}
+
+.icon-action:disabled {
+  cursor: wait;
+  opacity: 0.55;
+}
+
+.field-hint {
+  color: #657168;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
 textarea:focus,
 input:focus {
   border-color: #2f7f68;
@@ -294,13 +322,28 @@ input:focus {
   position: relative;
   overflow: hidden;
   min-height: 260px;
+  padding: 0;
   border: 1px solid #d7ccb9;
   border-radius: 8px;
+  color: inherit;
   background:
     linear-gradient(90deg, rgba(255, 255, 255, 0.58) 1px, transparent 1px),
     linear-gradient(rgba(255, 255, 255, 0.58) 1px, transparent 1px),
     #dfe8dd;
   background-size: 54px 54px;
+}
+
+.map-surface.is-clickable {
+  cursor: pointer;
+}
+
+.map-surface:focus-visible {
+  outline: 3px solid rgba(47, 127, 104, 0.25);
+  outline-offset: 3px;
+}
+
+.map-surface.expanded {
+  min-height: 420px;
 }
 
 .map-road {
@@ -349,6 +392,65 @@ input:focus {
   height: 36px;
   color: #ffffff;
   background: #c65632;
+}
+
+.place-pin.selected {
+  background: #1e6f5c;
+}
+
+.map-caption {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 2;
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: #244139;
+  background: rgba(255, 255, 255, 0.88);
+  font-size: 0.86rem;
+  font-weight: 850;
+  box-shadow: 0 10px 24px rgba(28, 39, 32, 0.12);
+}
+
+.map-expanded {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  background: #ffffff;
+}
+
+.map-expanded iframe {
+  width: 100%;
+  height: 100%;
+  min-height: 360px;
+  border: 0;
+}
+
+.map-expanded a {
+  padding: 10px 14px;
+  color: #1e5f4f;
+  background: #fbfaf5;
+  text-align: left;
+  text-decoration: none;
+  font-weight: 850;
+}
+
+.map-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border: 1px solid #d8cebc;
+  border-radius: 999px;
+  color: #23352d;
+  background: rgba(255, 255, 255, 0.94);
+  box-shadow: 0 10px 24px rgba(28, 39, 32, 0.14);
 }
 
 .pin-1 {

@@ -6,6 +6,7 @@ import {
   CloudSun,
   Coffee,
   ExternalLink,
+  LocateFixed,
   MapPin,
   MessageSquareText,
   Moon,
@@ -15,6 +16,7 @@ import {
   Users,
   Utensils,
   Wallet,
+  X,
 } from "lucide-react";
 import { getEffectiveInput, intentOptions, moodOptions, recommendPlaces } from "./agent/recommender";
 import { fetchAgentDecision, fetchNearbyPlaces, fetchReviewEnrichments, fetchSourceDiagnostics, fetchSourceStatus, fetchWeather } from "./data/placesClient";
@@ -49,6 +51,21 @@ const platformLabels: Record<ReviewPlatform, string> = {
   other: "网页",
 };
 
+function parseLocation(value: string) {
+  const [lngRaw, latRaw] = value.split(",");
+  const lng = Number(lngRaw);
+  const lat = Number(latRaw);
+  return Number.isFinite(lng) && Number.isFinite(lat) ? { lng, lat } : undefined;
+}
+
+function getPlaceMapUrl(place: Place | undefined, fallbackLocation: string) {
+  const fallback = parseLocation(fallbackLocation);
+  const lng = place?.longitude ?? fallback?.lng ?? 116.397428;
+  const lat = place?.latitude ?? fallback?.lat ?? 39.90923;
+  const name = encodeURIComponent(place?.name ?? "当前位置附近");
+  return `https://uri.amap.com/marker?position=${lng},${lat}&name=${name}&src=nearby-decision-agent&coordinate=gaode&callnative=0`;
+}
+
 function App() {
   const [prompt, setPrompt] = useState("我们 3 个人，想在附近吃点不太贵、能聊天的");
   const [people, setPeople] = useState(3);
@@ -58,11 +75,15 @@ function App() {
   const [location, setLocation] = useState("116.397428,39.90923");
   const [places, setPlaces] = useState<Place[]>(mockPlaces);
   const [source, setSource] = useState<PlaceSource>("mock");
+  const [isLoading, setIsLoading] = useState(false);
   const [weather, setWeather] = useState<WeatherContext | undefined>();
   const [agentDecision, setAgentDecision] = useState<AgentDecision | undefined>();
   const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | undefined>();
   const [sourceDiagnostics, setSourceDiagnostics] = useState<SourceDiagnostic[]>([]);
-  const [status, setStatus] = useState("使用本地 mock 数据，可配置高德 Key 切到真实周边 POI");
+  const [status, setStatus] = useState("准备读取真实 POI；如果接口不可用会自动使用 mock 兜底。");
+  const [locationMessage, setLocationMessage] = useState("");
+  const [isLocating, setIsLocating] = useState(false);
+  const [expandedMapPlace, setExpandedMapPlace] = useState<Place | undefined>();
 
   const rawInput: DecisionInput = useMemo(
     () => ({ prompt, people, budget, intent, moods: selectedMoods, location }),
@@ -71,11 +92,22 @@ function App() {
   const effectiveInput = useMemo(() => getEffectiveInput(rawInput), [rawInput]);
   const recommendations = useMemo(() => recommendPlaces(places, effectiveInput, weather), [effectiveInput, places, weather]);
   const best = recommendations[0];
+  const mapPlace = expandedMapPlace ?? best;
+  const modeLabel = isLoading
+    ? "加载中"
+    : source === "mock"
+      ? sourceStatus?.amap
+        ? "真实接口待返回"
+        : "Mock 兜底"
+      : source === "amap"
+        ? "高德实时 POI"
+        : "实时 POI";
 
   useEffect(() => {
     const controller = new AbortController();
 
     async function loadPlaces() {
+      setIsLoading(true);
       setStatus("正在查询周边 POI、天气和口碑来源...");
       try {
         const [placesData, weatherData, diagnosticsData] = await Promise.all([
@@ -112,6 +144,8 @@ function App() {
         setPlaces(mockPlaces);
         setSource("mock");
         setStatus("外部来源暂不可用，已自动回退到 mock 数据");
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
       }
     }
 
@@ -131,6 +165,29 @@ function App() {
     );
   }
 
+  function useBrowserLocation() {
+    if (!navigator.geolocation) {
+      setLocationMessage("当前浏览器不支持定位。");
+      return;
+    }
+
+    setIsLocating(true);
+    setLocationMessage("正在请求浏览器定位...");
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const nextLocation = `${position.coords.longitude.toFixed(6)},${position.coords.latitude.toFixed(6)}`;
+        setLocation(nextLocation);
+        setLocationMessage("已使用浏览器定位更新坐标。");
+        setIsLocating(false);
+      },
+      () => {
+        setLocationMessage("定位失败，请检查浏览器定位权限。");
+        setIsLocating(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+    );
+  }
+
   return (
     <main className="app-shell">
       <section className="decision-panel">
@@ -139,7 +196,7 @@ function App() {
             <p className="eyebrow">Nearby Decision Agent</p>
             <h1>附近吃点啥</h1>
           </div>
-          <span className="status-pill">{source === "mock" ? "Mock 模式" : "实时 POI"}</span>
+          <span className="status-pill">{modeLabel}</span>
         </div>
 
         <label className="prompt-box">
@@ -167,13 +224,19 @@ function App() {
           </label>
         </div>
 
-        <label className="prompt-box">
+        <div className="prompt-box">
           <span>
             <MapPin size={16} />
             当前位置，经度,纬度
           </span>
-          <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="116.397428,39.90923" />
-        </label>
+          <div className="location-row">
+            <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="116.397428,39.90923" />
+            <button type="button" className="icon-action" onClick={useBrowserLocation} title="使用浏览器定位" disabled={isLocating}>
+              <LocateFixed size={18} />
+            </button>
+          </div>
+          {locationMessage ? <small className="field-hint">{locationMessage}</small> : null}
+        </div>
 
         <div className="tag-section">
           <p>想做什么</p>
@@ -181,7 +244,7 @@ function App() {
             {intentOptions.map((item) => {
               const Icon = intentIcons[item.id];
               return (
-                <button className={effectiveInput.intent === item.id ? "active" : ""} key={item.id} onClick={() => setIntent(item.id)}>
+                <button type="button" className={intent === item.id ? "active" : ""} key={item.id} onClick={() => setIntent(item.id)}>
                   <Icon size={18} />
                   {item.label}
                 </button>
@@ -194,7 +257,7 @@ function App() {
           <p>偏好标签</p>
           <div className="mood-grid">
             {moodOptions.map((mood) => (
-              <button className={effectiveInput.moods.includes(mood.id) ? "active" : ""} key={mood.id} onClick={() => toggleMood(mood.id)}>
+              <button type="button" className={effectiveInput.moods.includes(mood.id) ? "active" : ""} key={mood.id} onClick={() => toggleMood(mood.id)}>
                 {mood.label}
               </button>
             ))}
@@ -214,15 +277,42 @@ function App() {
       </section>
 
       <section className="results-panel">
-        <div className="map-surface">
+        <div
+          role="button"
+          tabIndex={0}
+          className={`map-surface ${mapPlace ? "is-clickable" : ""} ${expandedMapPlace ? "expanded" : ""}`}
+          onClick={() => mapPlace && setExpandedMapPlace(mapPlace)}
+          onKeyDown={(event) => {
+            if ((event.key === "Enter" || event.key === " ") && mapPlace) setExpandedMapPlace(mapPlace);
+          }}
+        >
           <div className="map-road road-a" />
           <div className="map-road road-b" />
           <div className="user-dot">你</div>
           {recommendations.map((place, index) => (
-            <div className={`place-pin pin-${index + 1}`} key={place.id}>
+            <span
+              className={`place-pin pin-${index + 1} ${expandedMapPlace?.id === place.id ? "selected" : ""}`}
+              key={place.id}
+              onClick={(event) => {
+                event.stopPropagation();
+                setExpandedMapPlace(place);
+              }}
+            >
               {index + 1}
-            </div>
+            </span>
           ))}
+          <span className="map-caption">{expandedMapPlace ? `${expandedMapPlace.name} 附近地图` : "点击展开附近地图"}</span>
+          {expandedMapPlace ? (
+            <span className="map-expanded" onClick={(event) => event.stopPropagation()}>
+              <button type="button" className="map-close" onClick={() => setExpandedMapPlace(undefined)} title="收起地图">
+                <X size={16} />
+              </button>
+              <iframe title={`${expandedMapPlace.name} 附近地图`} src={getPlaceMapUrl(expandedMapPlace, location)} loading="lazy" />
+              <a href={getPlaceMapUrl(expandedMapPlace, location)} target="_blank" rel="noreferrer">
+                在高德地图打开
+              </a>
+            </span>
+          ) : null}
         </div>
 
         {best ? (
