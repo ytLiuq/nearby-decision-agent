@@ -1,17 +1,17 @@
 import type { Plugin } from "vite";
 
 const intentSearch = {
-  dinner: { keyword: "餐厅", amapTypes: "050000", tencentCategory: "美食" },
-  coffee: { keyword: "咖啡", amapTypes: "050500", tencentCategory: "咖啡厅" },
-  bar: { keyword: "酒吧", amapTypes: "050700", tencentCategory: "酒吧" },
-  "late-night": { keyword: "夜宵", amapTypes: "050000", tencentCategory: "美食" },
-  dessert: { keyword: "甜品", amapTypes: "050900", tencentCategory: "面包甜点" },
-  walk: { keyword: "公园", amapTypes: "060000|110000|140000", tencentCategory: "公园,购物,景点" },
+  dinner: { keyword: "餐厅", amapTypes: "050000" },
+  coffee: { keyword: "咖啡", amapTypes: "050500" },
+  bar: { keyword: "酒吧", amapTypes: "050700" },
+  "late-night": { keyword: "夜宵", amapTypes: "050000" },
+  dessert: { keyword: "甜品", amapTypes: "050900" },
+  walk: { keyword: "公园", amapTypes: "060000|110000|140000" },
 } as const;
 
 type Intent = keyof typeof intentSearch;
 type Mood = "quiet" | "lively" | "chat" | "date" | "value" | "photo" | "quick";
-type PlaceSource = "mock" | "amap" | "tencent" | "merged";
+type PlaceSource = "mock" | "amap" | "merged";
 type ReviewSource = "mock" | "tavily" | "mixed";
 type ReviewPlatform = "xiaohongshu" | "meituan" | "dianping" | "other";
 
@@ -36,20 +36,6 @@ type AmapResponse = {
   pois?: AmapPoi[];
 };
 
-type TencentPoi = {
-  id?: string;
-  title?: string;
-  address?: string;
-  category?: string;
-  tel?: string;
-  _distance?: number;
-};
-
-type TencentResponse = {
-  status: number;
-  message?: string;
-  data?: TencentPoi[];
-};
 
 type NormalizedPlace = {
   id: string;
@@ -95,11 +81,9 @@ export function createNearbyApiPlugin(env: Record<string, string>): Plugin[] {
   return [
     placesPlugin({
       amapKey: env.AMAP_WEB_SERVICE_KEY,
-      tencentKey: env.TENCENT_MAP_KEY,
     }),
     sourceDiagnosticsPlugin({
       amapKey: env.AMAP_WEB_SERVICE_KEY,
-      tencentKey: env.TENCENT_MAP_KEY,
     }),
     weatherPlugin(),
     statusPlugin(env),
@@ -116,7 +100,164 @@ export function createNearbyApiPlugin(env: Record<string, string>): Plugin[] {
   ];
 }
 
-function placesPlugin(config: { amapKey?: string; tencentKey?: string }): Plugin {
+
+export function getSourceStatus(env: Record<string, string | undefined>) {
+  return {
+    amap: Boolean(env.AMAP_WEB_SERVICE_KEY),
+    tavily: Boolean(env.TAVILY_API_KEY),
+    bing: Boolean(env.BING_SEARCH_KEY),
+    exa: Boolean(env.EXA_API_KEY),
+    openai: Boolean(env.OPENAI_API_KEY),
+    openMeteo: true,
+  };
+}
+
+export async function getPlacesResponse(env: Record<string, string | undefined>, params: URLSearchParams) {
+  const intent = normalizeIntent(params.get("intent"));
+  const location = params.get("location") || "116.397428,39.90923";
+  const budget = Number(params.get("budget") ?? "0");
+
+  const results = await Promise.allSettled([
+    env.AMAP_WEB_SERVICE_KEY ? fetchAmapPlaces(env.AMAP_WEB_SERVICE_KEY, intent, location) : Promise.resolve([]),
+  ]);
+
+  const places = mergePlaces(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])), intent, budget);
+  const providers = Array.from(new Set(places.map((place) => place.source)));
+
+  return {
+    source: providers.length > 1 ? "merged" : providers[0] ?? "mock",
+    providers,
+    places,
+    message: providers.length
+      ? `??? ${providers.map(providerLabel).join(" + ")} POI`
+      : "??????? POI????? mock ??",
+  };
+}
+
+export async function getSourceDiagnosticsResponse(env: Record<string, string | undefined>, params: URLSearchParams) {
+  const intent = normalizeIntent(params.get("intent"));
+  const location = params.get("location") || "116.397428,39.90923";
+  const budget = Number(params.get("budget") ?? "0");
+
+  const diagnostics = await Promise.all([
+    diagnoseSource("amap", env.AMAP_WEB_SERVICE_KEY, () => fetchAmapPlaces(env.AMAP_WEB_SERVICE_KEY!, intent, location), intent, budget),
+  ]);
+
+  return {
+    intent,
+    location,
+    diagnostics,
+    message: "????????",
+  };
+}
+
+export async function getWeatherResponse(params: URLSearchParams) {
+  const location = params.get("location") || "116.397428,39.90923";
+  const { lng, lat } = parseLngLat(location);
+  const weatherUrl = new URL("https://api.open-meteo.com/v1/forecast");
+  weatherUrl.searchParams.set("latitude", String(lat));
+  weatherUrl.searchParams.set("longitude", String(lng));
+  weatherUrl.searchParams.set("current", "temperature_2m,precipitation,wind_speed_10m,weather_code");
+  weatherUrl.searchParams.set("timezone", "auto");
+
+  const weatherResponse = await fetch(weatherUrl);
+  const payload = (await weatherResponse.json()) as {
+    current?: {
+      temperature_2m?: number;
+      precipitation?: number;
+      wind_speed_10m?: number;
+      weather_code?: number;
+    };
+  };
+  const current = payload.current;
+
+  if (!current) {
+    return { source: "mock", message: "??????" };
+  }
+
+  return {
+    source: "open-meteo",
+    weather: {
+      temperature: current.temperature_2m ?? 0,
+      precipitation: current.precipitation ?? 0,
+      windSpeed: current.wind_speed_10m ?? 0,
+      weatherCode: current.weather_code ?? 0,
+      condition: weatherCodeLabel(current.weather_code ?? 0),
+    },
+    message: "??? Open-Meteo ??",
+  };
+}
+
+export async function getEnrichmentResponse(env: Record<string, string | undefined>, body: { places?: EnrichPlace[]; input?: { prompt?: string } }) {
+  const places = body.places ?? [];
+  const config: EnrichmentConfig = {
+    tavilyApiKey: env.TAVILY_API_KEY,
+    bingApiKey: env.BING_SEARCH_KEY,
+    exaApiKey: env.EXA_API_KEY,
+  };
+
+  if (!config.tavilyApiKey && !config.bingApiKey && !config.exaApiKey) {
+    return {
+      source: "mock",
+      enrichments: places.map(mockEnrichment),
+      message: "????????????? mock ????",
+    };
+  }
+
+  const enrichments = [];
+  for (const place of places.slice(0, 4)) {
+    const webEnrichments = await Promise.allSettled([
+      config.tavilyApiKey ? enrichWithTavily(place, config.tavilyApiKey, body.input?.prompt) : Promise.resolve(undefined),
+      config.bingApiKey ? enrichWithBing(place, config.bingApiKey, body.input?.prompt) : Promise.resolve(undefined),
+      config.exaApiKey ? enrichWithExa(place, config.exaApiKey, body.input?.prompt) : Promise.resolve(undefined),
+    ]);
+    const valid = webEnrichments
+      .filter((result): result is PromiseFulfilledResult<Enrichment | undefined> => result.status === "fulfilled")
+      .map((result) => result.value)
+      .filter(Boolean) as Enrichment[];
+    enrichments.push(mergeManyEnrichments(place, valid) ?? mockEnrichment(place));
+  }
+
+  const enabled = [
+    config.tavilyApiKey ? "Tavily" : "",
+    config.bingApiKey ? "Bing" : "",
+    config.exaApiKey ? "Exa" : "",
+  ].filter(Boolean);
+
+  return {
+    source: enabled.length > 1 ? "mixed" : "tavily",
+    enrichments,
+    message: `??? ${enabled.join(" + ")} ????`,
+  };
+}
+
+export async function getDecisionResponse(
+  env: Record<string, string | undefined>,
+  body: { places?: NormalizedPlace[]; input?: DecisionInput; weather?: WeatherContext },
+) {
+  const places = (body.places ?? []).slice(0, 6);
+  const fallback = buildRuleDecision(places, body.input, body.weather);
+  const config = {
+    openaiApiKey: env.OPENAI_API_KEY,
+    openaiModel: env.OPENAI_MODEL || "gpt-4.1-mini",
+    openaiBaseUrl: env.OPENAI_BASE_URL || "https://api.openai.com",
+  };
+
+  if (!config.openaiApiKey || !places.length) {
+    return { decision: fallback, message: "OpenAI-compatible ?????????????" };
+  }
+
+  const decision = await callOpenAIDecision(config, places, body.input, body.weather, fallback);
+  return {
+    decision,
+    message:
+      decision.source === "openai"
+        ? `??? OpenAI Agent ??? (${config.openaiModel})`
+        : `OpenAI-compatible ????????????????? (${config.openaiModel})`,
+  };
+}
+
+function placesPlugin(config: { amapKey?: string }): Plugin {
   return {
     name: "nearby-agent-places",
     configureServer(server) {
@@ -131,7 +272,6 @@ function placesPlugin(config: { amapKey?: string; tencentKey?: string }): Plugin
 
           const results = await Promise.allSettled([
             config.amapKey ? fetchAmapPlaces(config.amapKey, intent, location) : Promise.resolve([]),
-            config.tencentKey ? fetchTencentPlaces(config.tencentKey, intent, location) : Promise.resolve([]),
           ]);
 
           const places = mergePlaces(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])), intent, budget);
@@ -165,7 +305,6 @@ function statusPlugin(env: Record<string, string>): Plugin {
         response.end(
           JSON.stringify({
             amap: Boolean(env.AMAP_WEB_SERVICE_KEY),
-            tencent: Boolean(env.TENCENT_MAP_KEY),
             tavily: Boolean(env.TAVILY_API_KEY),
             bing: Boolean(env.BING_SEARCH_KEY),
             exa: Boolean(env.EXA_API_KEY),
@@ -179,7 +318,7 @@ function statusPlugin(env: Record<string, string>): Plugin {
 }
 
 type SourceDiagnostic = {
-  source: "amap" | "tencent";
+  source: "amap";
   status: "ok" | "empty" | "error" | "not-configured";
   durationMs: number;
   rawCount: number;
@@ -188,7 +327,7 @@ type SourceDiagnostic = {
   message: string;
 };
 
-function sourceDiagnosticsPlugin(config: { amapKey?: string; tencentKey?: string }): Plugin {
+function sourceDiagnosticsPlugin(config: { amapKey?: string }): Plugin {
   return {
     name: "nearby-agent-source-diagnostics",
     configureServer(server) {
@@ -202,7 +341,6 @@ function sourceDiagnosticsPlugin(config: { amapKey?: string; tencentKey?: string
 
         const diagnostics = await Promise.all([
           diagnoseSource("amap", config.amapKey, () => fetchAmapPlaces(config.amapKey!, intent, location), intent, budget),
-          diagnoseSource("tencent", config.tencentKey, () => fetchTencentPlaces(config.tencentKey!, intent, location), intent, budget),
         ]);
 
         response.end(
@@ -284,25 +422,6 @@ async function fetchAmapPlaces(apiKey: string, intent: Intent, location: string)
   return (payload.pois ?? []).map((poi) => normalizeAmapPoi(poi, intent));
 }
 
-async function fetchTencentPlaces(apiKey: string, intent: Intent, location: string): Promise<NormalizedPlace[]> {
-  const { lng, lat } = parseLngLat(location);
-  const tencentUrl = new URL("https://apis.map.qq.com/ws/place/v1/search");
-  tencentUrl.searchParams.set("key", apiKey);
-  tencentUrl.searchParams.set("keyword", intentSearch[intent].keyword);
-  tencentUrl.searchParams.set("boundary", `nearby(${lat},${lng},3000)`);
-  tencentUrl.searchParams.set("page_size", "20");
-  tencentUrl.searchParams.set("page_index", "1");
-  tencentUrl.searchParams.set("orderby", "_distance");
-
-  const tencentResponse = await fetch(tencentUrl);
-  const payload = (await tencentResponse.json()) as TencentResponse;
-  if (payload.status !== 0) {
-    throw new Error(`Tencent Maps API ${payload.status}: ${payload.message ?? "unknown error"}`);
-  }
-
-  return (payload.data ?? []).map((poi) => normalizeTencentPoi(poi, intent));
-}
-
 function normalizeAmapPoi(poi: AmapPoi, intent: Intent): NormalizedPlace {
   const distanceMeters = Number(poi.distance ?? "900");
   const cost = Number(poi.business?.cost ?? "0");
@@ -331,33 +450,6 @@ function normalizeAmapPoi(poi: AmapPoi, intent: Intent): NormalizedPlace {
     phone: poi.tel,
     categories,
     recommendedDishes: categories.slice(0, 4),
-  };
-}
-
-function normalizeTencentPoi(poi: TencentPoi, intent: Intent): NormalizedPlace {
-  const distanceMeters = Number(poi._distance ?? "900");
-  const categories = splitCategories(poi.category);
-
-  return {
-    id: `tencent-${poi.id ?? poi.title ?? Math.random()}`,
-    name: poi.title ?? "附近地点",
-    category: intent,
-    tags: inferTags(`${poi.title ?? ""}${poi.category ?? ""}`),
-    distanceMinutes: Math.max(3, Math.round(distanceMeters / 80)),
-    avgPrice: 0,
-    rating: 4.1,
-    groupFit: inferGroupFit(intent),
-    openUntil: "营业时间待确认",
-    notes: [
-      `${poi.address || "地址待确认"}，距离约 ${distanceMeters || "未知"} 米`,
-      categories.length ? `腾讯分类：${categories.slice(0, 4).join(" / ")}` : "腾讯分类待补充",
-      "腾讯位置服务提供另一组 POI 覆盖，用来补齐地址和分类。",
-    ],
-    caution: "腾讯 POI 通常缺少人均和评分，需要结合高德或搜索口碑。",
-    address: poi.address || "地址待确认",
-    source: "tencent",
-    phone: poi.tel,
-    categories,
   };
 }
 
@@ -435,7 +527,6 @@ function scorePlaceQuality(place: NormalizedPlace, intent: Intent, budget = 0) {
   else if (place.distanceMinutes <= 25) score += 4;
   if (place.source === "merged") score += 16;
   if (place.source === "amap") score += 10;
-  if (place.source === "tencent") score += 6;
   if ((place.categories ?? []).length) score += 8;
   if (place.phone) score += 4;
   if (place.openUntil && place.openUntil !== "营业时间待确认") score += 4;
@@ -465,7 +556,6 @@ function getPlaceQualityReasons(place: NormalizedPlace, intent: Intent, budget =
   if ((place.categories ?? []).length) reasons.push("分类信息完整");
   if (place.source === "merged") reasons.push("多源 POI 交叉命中");
   else if (place.source === "amap") reasons.push("高德 POI 详情较完整");
-  else if (place.source === "tencent") reasons.push("腾讯 POI 补充覆盖");
   if (place.phone) reasons.push("有联系电话");
   if (place.openUntil && place.openUntil !== "营业时间待确认") reasons.push("有营业时间线索");
   return reasons.slice(0, 6);
@@ -1084,7 +1174,6 @@ function normalizePlaceKey(place: NormalizedPlace) {
 
 function providerLabel(provider: PlaceSource) {
   if (provider === "amap") return "高德";
-  if (provider === "tencent") return "腾讯";
   if (provider === "merged") return "多源合并";
   return "Mock";
 }

@@ -62,7 +62,7 @@ function App() {
   const [agentDecision, setAgentDecision] = useState<AgentDecision | undefined>();
   const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | undefined>();
   const [sourceDiagnostics, setSourceDiagnostics] = useState<SourceDiagnostic[]>([]);
-  const [status, setStatus] = useState("使用本地 mock 数据，可配置高德/腾讯 Key 切到真实周边 POI");
+  const [status, setStatus] = useState("使用本地 mock 数据，可配置高德 Key 切到真实周边 POI");
 
   const rawInput: DecisionInput = useMemo(
     () => ({ prompt, people, budget, intent, moods: selectedMoods, location }),
@@ -301,7 +301,6 @@ function App() {
 function SourceStatusBar({ status }: { status: SourceStatusResponse }) {
   const items = [
     ["高德", status.amap],
-    ["腾讯", status.tencent],
     ["天气", status.openMeteo],
     ["Tavily", status.tavily],
     ["Bing", status.bing],
@@ -323,7 +322,6 @@ function SourceStatusBar({ status }: { status: SourceStatusResponse }) {
 function SourceDiagnosticsPanel({ diagnostics }: { diagnostics: SourceDiagnostic[] }) {
   const sourceLabels: Record<SourceDiagnostic["source"], string> = {
     amap: "高德",
-    tencent: "腾讯",
   };
   const statusLabels: Record<SourceDiagnostic["status"], string> = {
     ok: "可用",

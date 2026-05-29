@@ -115,7 +115,7 @@ function scorePlace(place: Place, intent: Intent, moodSet: Set<Mood>, people: nu
   score += matchedReviewTags.length * 8;
   if (matchedReviewTags.length) reasons.push("口碑标签命中");
 
-  if (place.source === "amap" || place.source === "tencent" || place.source === "merged") {
+  if (place.source === "amap" || place.source === "merged") {
     score += 4;
     reasons.push("来自实时周边 POI");
   }
