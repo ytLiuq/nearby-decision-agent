@@ -6,7 +6,6 @@
 
 - 高德 Web 服务：`/api/places` 使用 `AMAP_WEB_SERVICE_KEY` 拉取附近 POI、距离、评分、人均和营业信息。
 - 腾讯位置服务：`/api/places` 使用 `TENCENT_MAP_KEY` 补充 POI 覆盖、地址和分类。
-- Foursquare Places：`/api/places` 使用 `FOURSQUARE_API_KEY` 补充国际化 POI 和英文分类。
 - Open-Meteo：`/api/weather` 免费拉取当前天气，无需 key。
 - Tavily：`/api/enrich` 使用 `TAVILY_API_KEY` 搜索公开网页口碑线索。
 - Exa：`/api/enrich` 使用 `EXA_API_KEY` 搜索公开网页口碑线索。
@@ -22,7 +21,6 @@
 ```bash
 AMAP_WEB_SERVICE_KEY=your_amap_web_service_key
 TENCENT_MAP_KEY=your_tencent_location_service_key
-FOURSQUARE_API_KEY=your_foursquare_places_api_key
 TAVILY_API_KEY=your_tavily_api_key
 BING_SEARCH_KEY=your_bing_search_api_key
 EXA_API_KEY=your_exa_api_key
@@ -56,7 +54,7 @@ npm run test:api
 
 ## API 速览
 
-- `GET /api/status`：查看高德、腾讯、Foursquare、Tavily、Bing、Exa、OpenAI、Open-Meteo 是否已配置。
+- `GET /api/status`：查看高德、腾讯、Tavily、Bing、Exa、OpenAI、Open-Meteo 是否已配置。
 - `GET /api/places?intent=dinner&location=116.397428,39.90923`：拉取附近候选地点。
 - `GET /api/weather?location=116.397428,39.90923`：拉取天气上下文。
 - `POST /api/enrich`：给候选地点补充公开口碑和来源链接。

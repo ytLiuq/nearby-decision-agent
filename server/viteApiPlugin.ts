@@ -1,17 +1,17 @@
 import type { Plugin } from "vite";
 
 const intentSearch = {
-  dinner: { keyword: "餐厅", amapTypes: "050000", tencentCategory: "美食", fsqQuery: "restaurant" },
-  coffee: { keyword: "咖啡", amapTypes: "050500", tencentCategory: "咖啡厅", fsqQuery: "coffee" },
-  bar: { keyword: "酒吧", amapTypes: "050700", tencentCategory: "酒吧", fsqQuery: "bar" },
-  "late-night": { keyword: "夜宵", amapTypes: "050000", tencentCategory: "美食", fsqQuery: "late night food" },
-  dessert: { keyword: "甜品", amapTypes: "050900", tencentCategory: "面包甜点", fsqQuery: "dessert" },
-  walk: { keyword: "公园", amapTypes: "060000|110000|140000", tencentCategory: "公园,购物,景点", fsqQuery: "park" },
+  dinner: { keyword: "餐厅", amapTypes: "050000", tencentCategory: "美食" },
+  coffee: { keyword: "咖啡", amapTypes: "050500", tencentCategory: "咖啡厅" },
+  bar: { keyword: "酒吧", amapTypes: "050700", tencentCategory: "酒吧" },
+  "late-night": { keyword: "夜宵", amapTypes: "050000", tencentCategory: "美食" },
+  dessert: { keyword: "甜品", amapTypes: "050900", tencentCategory: "面包甜点" },
+  walk: { keyword: "公园", amapTypes: "060000|110000|140000", tencentCategory: "公园,购物,景点" },
 } as const;
 
 type Intent = keyof typeof intentSearch;
 type Mood = "quiet" | "lively" | "chat" | "date" | "value" | "photo" | "quick";
-type PlaceSource = "mock" | "amap" | "tencent" | "foursquare" | "merged";
+type PlaceSource = "mock" | "amap" | "tencent" | "merged";
 type ReviewSource = "mock" | "tavily" | "mixed";
 type ReviewPlatform = "xiaohongshu" | "meituan" | "dianping" | "other";
 
@@ -49,22 +49,6 @@ type TencentResponse = {
   status: number;
   message?: string;
   data?: TencentPoi[];
-};
-
-type FoursquarePlace = {
-  fsq_id?: string;
-  name?: string;
-  distance?: number;
-  location?: {
-    formatted_address?: string;
-    address?: string;
-  };
-  categories?: Array<{ name?: string }>;
-  tel?: string;
-};
-
-type FoursquareResponse = {
-  results?: FoursquarePlace[];
 };
 
 type NormalizedPlace = {
@@ -112,12 +96,10 @@ export function createNearbyApiPlugin(env: Record<string, string>): Plugin[] {
     placesPlugin({
       amapKey: env.AMAP_WEB_SERVICE_KEY,
       tencentKey: env.TENCENT_MAP_KEY,
-      foursquareKey: env.FOURSQUARE_API_KEY,
     }),
     sourceDiagnosticsPlugin({
       amapKey: env.AMAP_WEB_SERVICE_KEY,
       tencentKey: env.TENCENT_MAP_KEY,
-      foursquareKey: env.FOURSQUARE_API_KEY,
     }),
     weatherPlugin(),
     statusPlugin(env),
@@ -134,7 +116,7 @@ export function createNearbyApiPlugin(env: Record<string, string>): Plugin[] {
   ];
 }
 
-function placesPlugin(config: { amapKey?: string; tencentKey?: string; foursquareKey?: string }): Plugin {
+function placesPlugin(config: { amapKey?: string; tencentKey?: string }): Plugin {
   return {
     name: "nearby-agent-places",
     configureServer(server) {
@@ -150,7 +132,6 @@ function placesPlugin(config: { amapKey?: string; tencentKey?: string; foursquar
           const results = await Promise.allSettled([
             config.amapKey ? fetchAmapPlaces(config.amapKey, intent, location) : Promise.resolve([]),
             config.tencentKey ? fetchTencentPlaces(config.tencentKey, intent, location) : Promise.resolve([]),
-            config.foursquareKey ? fetchFoursquarePlaces(config.foursquareKey, intent, location) : Promise.resolve([]),
           ]);
 
           const places = mergePlaces(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])), intent, budget);
@@ -185,7 +166,6 @@ function statusPlugin(env: Record<string, string>): Plugin {
           JSON.stringify({
             amap: Boolean(env.AMAP_WEB_SERVICE_KEY),
             tencent: Boolean(env.TENCENT_MAP_KEY),
-            foursquare: Boolean(env.FOURSQUARE_API_KEY),
             tavily: Boolean(env.TAVILY_API_KEY),
             bing: Boolean(env.BING_SEARCH_KEY),
             exa: Boolean(env.EXA_API_KEY),
@@ -199,7 +179,7 @@ function statusPlugin(env: Record<string, string>): Plugin {
 }
 
 type SourceDiagnostic = {
-  source: "amap" | "tencent" | "foursquare";
+  source: "amap" | "tencent";
   status: "ok" | "empty" | "error" | "not-configured";
   durationMs: number;
   rawCount: number;
@@ -208,7 +188,7 @@ type SourceDiagnostic = {
   message: string;
 };
 
-function sourceDiagnosticsPlugin(config: { amapKey?: string; tencentKey?: string; foursquareKey?: string }): Plugin {
+function sourceDiagnosticsPlugin(config: { amapKey?: string; tencentKey?: string }): Plugin {
   return {
     name: "nearby-agent-source-diagnostics",
     configureServer(server) {
@@ -223,7 +203,6 @@ function sourceDiagnosticsPlugin(config: { amapKey?: string; tencentKey?: string
         const diagnostics = await Promise.all([
           diagnoseSource("amap", config.amapKey, () => fetchAmapPlaces(config.amapKey!, intent, location), intent, budget),
           diagnoseSource("tencent", config.tencentKey, () => fetchTencentPlaces(config.tencentKey!, intent, location), intent, budget),
-          diagnoseSource("foursquare", config.foursquareKey, () => fetchFoursquarePlaces(config.foursquareKey!, intent, location), intent, budget),
         ]);
 
         response.end(
@@ -324,30 +303,6 @@ async function fetchTencentPlaces(apiKey: string, intent: Intent, location: stri
   return (payload.data ?? []).map((poi) => normalizeTencentPoi(poi, intent));
 }
 
-async function fetchFoursquarePlaces(apiKey: string, intent: Intent, location: string): Promise<NormalizedPlace[]> {
-  const { lng, lat } = parseLngLat(location);
-  const fsqUrl = new URL("https://api.foursquare.com/v3/places/search");
-  fsqUrl.searchParams.set("ll", `${lat},${lng}`);
-  fsqUrl.searchParams.set("query", intentSearch[intent].fsqQuery);
-  fsqUrl.searchParams.set("radius", "3000");
-  fsqUrl.searchParams.set("limit", "20");
-  fsqUrl.searchParams.set("sort", "DISTANCE");
-
-  const fsqResponse = await fetch(fsqUrl, {
-    headers: {
-      Accept: "application/json",
-      Authorization: apiKey,
-    },
-  });
-  if (!fsqResponse.ok) {
-    const errorText = await fsqResponse.text();
-    throw new Error(`Foursquare API ${fsqResponse.status}: ${errorText.slice(0, 180)}`);
-  }
-
-  const payload = (await fsqResponse.json()) as FoursquareResponse;
-  return (payload.results ?? []).map((place) => normalizeFoursquarePlace(place, intent));
-}
-
 function normalizeAmapPoi(poi: AmapPoi, intent: Intent): NormalizedPlace {
   const distanceMeters = Number(poi.distance ?? "900");
   const cost = Number(poi.business?.cost ?? "0");
@@ -402,34 +357,6 @@ function normalizeTencentPoi(poi: TencentPoi, intent: Intent): NormalizedPlace {
     address: poi.address || "地址待确认",
     source: "tencent",
     phone: poi.tel,
-    categories,
-  };
-}
-
-function normalizeFoursquarePlace(place: FoursquarePlace, intent: Intent): NormalizedPlace {
-  const distanceMeters = Number(place.distance ?? "900");
-  const address = place.location?.formatted_address || place.location?.address || "地址待确认";
-  const categories = (place.categories ?? []).map((category) => category.name ?? "").filter(Boolean);
-
-  return {
-    id: `foursquare-${place.fsq_id ?? place.name ?? Math.random()}`,
-    name: place.name ?? "Nearby place",
-    category: intent,
-    tags: inferTags(`${place.name ?? ""}${categories.join(" ")}`),
-    distanceMinutes: Math.max(3, Math.round(distanceMeters / 80)),
-    avgPrice: 0,
-    rating: 4.1,
-    groupFit: inferGroupFit(intent),
-    openUntil: "营业时间待确认",
-    notes: [
-      `${address}，距离约 ${distanceMeters || "未知"} 米`,
-      categories.length ? `Foursquare 分类：${categories.slice(0, 4).join(" / ")}` : "Foursquare Places 命中",
-      "Foursquare 更适合补充国际化 POI 和英文分类。",
-    ],
-    caution: "Foursquare 在国内商户详情较弱，人均、评分和营业状态需要交叉验证。",
-    address,
-    source: "foursquare",
-    phone: place.tel,
     categories,
   };
 }
@@ -509,7 +436,6 @@ function scorePlaceQuality(place: NormalizedPlace, intent: Intent, budget = 0) {
   if (place.source === "merged") score += 16;
   if (place.source === "amap") score += 10;
   if (place.source === "tencent") score += 6;
-  if (place.source === "foursquare") score += 4;
   if ((place.categories ?? []).length) score += 8;
   if (place.phone) score += 4;
   if (place.openUntil && place.openUntil !== "营业时间待确认") score += 4;
@@ -524,7 +450,6 @@ function getPlaceDataWarnings(place: NormalizedPlace) {
   if (!place.avgPrice) warnings.push("缺少人均消费");
   if (!place.rating) warnings.push("缺少评分");
   if (!place.openUntil || place.openUntil === "营业时间待确认") warnings.push("营业时间待确认");
-  if (place.source === "foursquare") warnings.push("国内详情覆盖较弱");
   return warnings;
 }
 
@@ -541,7 +466,6 @@ function getPlaceQualityReasons(place: NormalizedPlace, intent: Intent, budget =
   if (place.source === "merged") reasons.push("多源 POI 交叉命中");
   else if (place.source === "amap") reasons.push("高德 POI 详情较完整");
   else if (place.source === "tencent") reasons.push("腾讯 POI 补充覆盖");
-  else if (place.source === "foursquare") reasons.push("Foursquare 补充覆盖");
   if (place.phone) reasons.push("有联系电话");
   if (place.openUntil && place.openUntil !== "营业时间待确认") reasons.push("有营业时间线索");
   return reasons.slice(0, 6);
@@ -556,7 +480,6 @@ function getPlaceQualityPenalties(place: NormalizedPlace, intent: Intent, budget
   if (budget > 0 && place.avgPrice > budget) penalties.push("人均超过预算");
   if (!place.address || place.address === "地址待确认") penalties.push("地址不完整");
   if (!place.openUntil || place.openUntil === "营业时间待确认") penalties.push("营业时间待确认");
-  if (place.source === "foursquare") penalties.push("国内详情覆盖较弱");
   return penalties.slice(0, 6);
 }
 
@@ -1162,7 +1085,6 @@ function normalizePlaceKey(place: NormalizedPlace) {
 function providerLabel(provider: PlaceSource) {
   if (provider === "amap") return "高德";
   if (provider === "tencent") return "腾讯";
-  if (provider === "foursquare") return "Foursquare";
   if (provider === "merged") return "多源合并";
   return "Mock";
 }

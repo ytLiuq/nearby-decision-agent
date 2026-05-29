@@ -2,7 +2,7 @@ export type Intent = "dinner" | "coffee" | "bar" | "late-night" | "dessert" | "w
 
 export type Mood = "quiet" | "lively" | "chat" | "date" | "value" | "photo" | "quick";
 
-export type PlaceSource = "mock" | "amap" | "tencent" | "foursquare" | "merged";
+export type PlaceSource = "mock" | "amap" | "tencent" | "merged";
 
 export type ReviewSource = "mock" | "tavily" | "mixed";
 
@@ -112,7 +112,6 @@ export type DecisionResponse = {
 export type SourceStatusResponse = {
   amap: boolean;
   tencent: boolean;
-  foursquare: boolean;
   tavily: boolean;
   bing: boolean;
   exa: boolean;
@@ -121,7 +120,7 @@ export type SourceStatusResponse = {
 };
 
 export type SourceDiagnostic = {
-  source: "amap" | "tencent" | "foursquare";
+  source: "amap" | "tencent";
   status: "ok" | "empty" | "error" | "not-configured";
   durationMs: number;
   rawCount: number;

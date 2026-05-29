@@ -302,7 +302,6 @@ function SourceStatusBar({ status }: { status: SourceStatusResponse }) {
   const items = [
     ["高德", status.amap],
     ["腾讯", status.tencent],
-    ["Foursquare", status.foursquare],
     ["天气", status.openMeteo],
     ["Tavily", status.tavily],
     ["Bing", status.bing],
@@ -325,7 +324,6 @@ function SourceDiagnosticsPanel({ diagnostics }: { diagnostics: SourceDiagnostic
   const sourceLabels: Record<SourceDiagnostic["source"], string> = {
     amap: "高德",
     tencent: "腾讯",
-    foursquare: "Foursquare",
   };
   const statusLabels: Record<SourceDiagnostic["status"], string> = {
     ok: "可用",
