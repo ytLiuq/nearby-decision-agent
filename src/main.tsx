@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   Clock3,
@@ -47,17 +47,175 @@ function getPlaceMapUrl(place: Place | undefined, fallbackLocation: string) {
   return `https://uri.amap.com/marker?position=${lng},${lat}&name=${name}&src=nearby-decision-agent&coordinate=gaode&callnative=0`;
 }
 
-function getMapCoordinates(place: Place | undefined, fallbackLocation: string) {
-  const fallback = parseLocation(fallbackLocation);
-  if (place?.longitude && place.latitude) return { lng: place.longitude, lat: place.latitude };
-  return fallback;
+declare global {
+  interface Window {
+    AMap?: any;
+    _AMapSecurityConfig?: { securityJsCode?: string };
+  }
 }
 
-function getOsmMapUrl(coords: { lng: number; lat: number } | undefined) {
-  if (!coords) return undefined;
-  const delta = 0.012;
-  const bbox = [coords.lng - delta, coords.lat - delta, coords.lng + delta, coords.lat + delta].join(",");
-  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${coords.lat},${coords.lng}`;
+type Coordinates = { lng: number; lat: number };
+type AMapLoadState = "idle" | "loading" | "ready" | "error";
+type ClientImportMeta = ImportMeta & { env: Record<string, string | undefined> };
+
+let amapLoader: Promise<any> | undefined;
+
+function getClientEnv(name: string) {
+  return (import.meta as ClientImportMeta).env[name];
+}
+
+function getAmapJsKey() {
+  return getClientEnv("VITE_AMAP_JS_KEY") ?? getClientEnv("VITE_AMAP_KEY") ?? "";
+}
+
+function getAmapSecurityCode() {
+  return getClientEnv("VITE_AMAP_SECURITY_JS_CODE") ?? getClientEnv("VITE_AMAP_JS_SECURITY_CODE") ?? "";
+}
+
+function loadAmapSdk() {
+  if (window.AMap) return Promise.resolve(window.AMap);
+  if (amapLoader) return amapLoader;
+
+  const key = getAmapJsKey();
+  if (!key) return Promise.reject(new Error("Missing VITE_AMAP_JS_KEY"));
+
+  const securityCode = getAmapSecurityCode();
+  if (securityCode) window._AMapSecurityConfig = { securityJsCode: securityCode };
+
+  amapLoader = new Promise((resolve, reject) => {
+    const existing = document.getElementById("amap-js-api") as HTMLScriptElement | null;
+    if (existing) {
+      existing.addEventListener("load", () => resolve(window.AMap), { once: true });
+      existing.addEventListener("error", reject, { once: true });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.id = "amap-js-api";
+    script.async = true;
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(
+      key,
+    )}&plugin=AMap.Scale,AMap.ToolBar`;
+    script.onload = () => resolve(window.AMap);
+    script.onerror = () => {
+      amapLoader = undefined;
+      reject(new Error("Failed to load AMap JS API"));
+    };
+    document.head.appendChild(script);
+  });
+
+  return amapLoader;
+}
+
+function hasPlaceCoordinates(place: Place | undefined): place is Place & { longitude: number; latitude: number } {
+  return Number.isFinite(place?.longitude) && Number.isFinite(place?.latitude);
+}
+
+function AMapPreview({
+  center,
+  places,
+  selectedPlace,
+  onSelectPlace,
+}: {
+  center: Coordinates | undefined;
+  places: Place[];
+  selectedPlace: Place | undefined;
+  onSelectPlace: (place: Place) => void;
+}) {
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<any>(null);
+  const markerRef = useRef<any[]>([]);
+  const [loadState, setLoadState] = useState<AMapLoadState>(center ? "loading" : "idle");
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function mountMap() {
+      if (!center || !containerRef.current) {
+        setLoadState("idle");
+        return;
+      }
+
+      setLoadState("loading");
+      try {
+        const AMap = await loadAmapSdk();
+        if (cancelled || !containerRef.current) return;
+
+        if (!mapRef.current) {
+          mapRef.current = new AMap.Map(containerRef.current, {
+            center: [center.lng, center.lat],
+            zoom: 15,
+            resizeEnable: true,
+            viewMode: "2D",
+            mapStyle: "amap://styles/normal",
+          });
+          if (AMap.Scale) mapRef.current.addControl(new AMap.Scale());
+          if (AMap.ToolBar) mapRef.current.addControl(new AMap.ToolBar({ position: "RT" }));
+        }
+
+        markerRef.current.forEach((marker) => mapRef.current.remove(marker));
+        markerRef.current = [];
+
+        const nextMarkers = [
+          new AMap.Marker({
+            content: '<div class="amap-user-marker">你</div>',
+            offset: new AMap.Pixel(-19, -19),
+            position: [center.lng, center.lat],
+            title: "你的位置",
+          }),
+        ];
+
+        places.filter(hasPlaceCoordinates).slice(0, 6).forEach((place, index) => {
+          const isSelected = selectedPlace?.id === place.id;
+          const marker = new AMap.Marker({
+            content: `<button class="amap-place-marker${isSelected ? " is-selected" : ""}" type="button">${index + 1}</button>`,
+            offset: new AMap.Pixel(-18, -18),
+            position: [place.longitude, place.latitude],
+            title: place.name,
+          });
+          marker.on("click", () => onSelectPlace(place));
+          nextMarkers.push(marker);
+        });
+
+        mapRef.current.add(nextMarkers);
+        markerRef.current = nextMarkers;
+
+        if (hasPlaceCoordinates(selectedPlace)) {
+          mapRef.current.setZoomAndCenter(16, [selectedPlace.longitude, selectedPlace.latitude]);
+        } else if (nextMarkers.length > 1) {
+          mapRef.current.setFitView(nextMarkers, false, [64, 40, 64, 40], 16);
+        } else {
+          mapRef.current.setZoomAndCenter(15, [center.lng, center.lat]);
+        }
+
+        setLoadState("ready");
+      } catch {
+        if (!cancelled) setLoadState("error");
+      }
+    }
+
+    mountMap();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [center, onSelectPlace, places, selectedPlace]);
+
+  return (
+    <>
+      <div ref={containerRef} className="amap-map-canvas" />
+      {!center ? <div className="map-empty">允许定位后，这里会显示你附近的高德地图</div> : null}
+      {loadState === "loading" ? (
+        <div className="map-loading" role="status" aria-live="polite">
+          <span className="loading-spinner" />
+          <strong>正在加载高德地图</strong>
+        </div>
+      ) : null}
+      {loadState === "error" ? (
+        <div className="map-empty">高德地图加载失败，请检查 VITE_AMAP_JS_KEY 和安全密钥配置</div>
+      ) : null}
+    </>
+  );
 }
 
 function App() {
@@ -89,8 +247,6 @@ function App() {
   const mapPlace = expandedMapPlace ?? best;
   const mapPreviewPlaces = visibleRecommendations.slice(0, 3);
   const userCoordinates = parseLocation(effectiveInput.location);
-  const previewMapUrl = getOsmMapUrl(userCoordinates);
-  const expandedMapUrl = getOsmMapUrl(getMapCoordinates(expandedMapPlace, effectiveInput.location));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -249,21 +405,17 @@ function App() {
             <p>正在读取位置、地点、天气和口碑信息。</p>
           </div>
         ) : null}
-        <div
-          role="button"
-          tabIndex={0}
-          className={`map-surface ${mapPlace ? "is-clickable" : ""} ${expandedMapPlace ? "expanded" : ""}`}
-          onClick={() => mapPlace && setExpandedMapPlace(mapPlace)}
-          onKeyDown={(event) => {
-            if ((event.key === "Enter" || event.key === " ") && mapPlace) setExpandedMapPlace(mapPlace);
-          }}
-        >
+        <div className={`map-surface ${expandedMapPlace ? "expanded" : ""}`}>
+          <AMapPreview
+            center={userCoordinates}
+            places={visibleRecommendations}
+            selectedPlace={mapPlace}
+            onSelectPlace={setExpandedMapPlace}
+          />
           <div className="map-topbar">
-            <span>{userCoordinates ? "你附近的真实地图" : "等待定位"}</span>
+            <span>{userCoordinates ? "高德地图" : "等待定位"}</span>
             <strong>{mapPlace?.name ?? "先定位后显示地图"}</strong>
           </div>
-          {previewMapUrl ? <iframe className="map-frame" title="你附近的真实地图" src={previewMapUrl} loading="lazy" /> : null}
-          {!previewMapUrl ? <div className="map-empty">允许定位后，这里会显示你附近的真实地图</div> : null}
           <div className="map-place-strip">
             {mapPreviewPlaces.map((place, index) => (
               <button
@@ -279,21 +431,21 @@ function App() {
               </button>
             ))}
           </div>
-          <span className="map-caption">{expandedMapPlace ? `${expandedMapPlace.name} 附近地图` : "点击展开地图"}</span>
+          {mapPlace ? (
+            <button type="button" className="map-caption" onClick={() => setExpandedMapPlace(mapPlace)}>
+              {expandedMapPlace ? "已展开地图" : "点击展开地图"}
+            </button>
+          ) : null}
           {expandedMapPlace ? (
-            <span className="map-expanded" onClick={(event) => event.stopPropagation()}>
+            <>
               <button type="button" className="map-close" onClick={() => setExpandedMapPlace(undefined)} title="收起地图">
                 <X size={16} />
               </button>
-              {expandedMapUrl ? <iframe title={`${expandedMapPlace.name} 附近地图`} src={expandedMapUrl} loading="lazy" /> : null}
-              <div className="map-expanded-footer">
-                <strong>{expandedMapPlace.name}</strong>
-                <a href={getPlaceMapUrl(expandedMapPlace, location)} target="_blank" rel="noreferrer">
-                  用高德打开
-                  <ExternalLink size={14} />
-                </a>
-              </div>
-            </span>
+              <a className="amap-open-link" href={getPlaceMapUrl(expandedMapPlace, location)} target="_blank" rel="noreferrer">
+                用高德打开
+                <ExternalLink size={14} />
+              </a>
+            </>
           ) : null}
         </div>
 
