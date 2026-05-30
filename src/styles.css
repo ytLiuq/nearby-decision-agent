@@ -147,6 +147,57 @@ h3 {
   gap: 10px;
 }
 
+.amap-login-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 16px;
+  border: 1px solid rgba(204, 120, 92, 0.28);
+  border-radius: 12px;
+  padding: 16px;
+  background: #f4dfd6;
+}
+
+.amap-login-card span {
+  display: inline-block;
+  margin-bottom: 6px;
+  color: var(--primary-active);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.amap-login-card strong {
+  display: block;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.amap-login-card p {
+  margin: 6px 0 0;
+  color: var(--body);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.amap-login-card a {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 40px;
+  border-radius: 8px;
+  padding: 0 14px;
+  color: #ffffff;
+  background: var(--primary);
+  text-decoration: none;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.amap-login-card a:hover {
+  background: var(--primary-active);
+}
+
 .prompt-box span,
 .control-grid label span {
   gap: 8px;
@@ -772,6 +823,28 @@ input:focus {
   color: var(--muted);
 }
 
+.recommendation-detail {
+  display: grid;
+  gap: 10px;
+}
+
+.recommendation-detail p {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  color: var(--body);
+  line-height: 1.65;
+}
+
+.recommendation-detail strong {
+  color: var(--ink);
+  font-size: 0.82rem;
+}
+
+.compact-recommendation-detail {
+  margin-bottom: 10px;
+}
+
 .compact-meta {
   display: flex;
   flex-wrap: wrap;
@@ -929,6 +1002,10 @@ input:focus {
   .answer-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .amap-login-card {
+    grid-template-columns: 1fr;
   }
 
   .map-place-strip {

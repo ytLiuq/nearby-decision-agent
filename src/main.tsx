@@ -1,30 +1,23 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  Beer,
   Clock3,
   CloudSun,
-  Coffee,
   ExternalLink,
   LocateFixed,
   MapPin,
   MessageSquareText,
-  Moon,
   Search,
-  Sparkles,
   Star,
-  Users,
-  Utensils,
   Wallet,
   X,
 } from "lucide-react";
-import { getEffectiveInput, intentOptions, moodOptions, recommendPlaces } from "./agent/recommender";
+import { getEffectiveInput, recommendPlaces } from "./agent/recommender";
 import { fetchAgentDecision, fetchNearbyPlaces, fetchReviewEnrichments, fetchSourceDiagnostics, fetchSourceStatus, fetchWeather } from "./data/placesClient";
 import { mockPlaces } from "./data/mockPlaces";
 import type {
   AgentDecision,
   DecisionInput,
-  Intent,
   Mood,
   Place,
   PlaceSource,
@@ -34,15 +27,6 @@ import type {
   WeatherContext,
 } from "./domain";
 import "./styles.css";
-
-const intentIcons: Record<Intent, React.ElementType> = {
-  dinner: Utensils,
-  coffee: Coffee,
-  bar: Beer,
-  "late-night": Moon,
-  dessert: Sparkles,
-  walk: MapPin,
-};
 
 const platformLabels: Record<ReviewPlatform, string> = {
   xiaohongshu: "小红书",
@@ -66,13 +50,15 @@ function getPlaceMapUrl(place: Place | undefined, fallbackLocation: string) {
   return `https://uri.amap.com/marker?position=${lng},${lat}&name=${name}&src=nearby-decision-agent&coordinate=gaode&callnative=0`;
 }
 
+const amapLoginUrl = "https://www.amap.com/";
+
 function App() {
   const [prompt, setPrompt] = useState("我们 3 个人，想在附近吃点不太贵、能聊天的");
-  const [people, setPeople] = useState(3);
-  const [budget, setBudget] = useState(100);
-  const [intent, setIntent] = useState<Intent>("dinner");
-  const [selectedMoods, setSelectedMoods] = useState<Mood[]>(["chat", "value"]);
-  const [location, setLocation] = useState("116.397428,39.90923");
+  const [people] = useState(3);
+  const [budget] = useState(100);
+  const [selectedMoods] = useState<Mood[]>([]);
+  const [location, setLocation] = useState("北京市东城区");
+  const [browserLocation, setBrowserLocation] = useState<string | undefined>();
   const [places, setPlaces] = useState<Place[]>(mockPlaces);
   const [source, setSource] = useState<PlaceSource>("mock");
   const [isLoading, setIsLoading] = useState(false);
@@ -80,14 +66,14 @@ function App() {
   const [agentDecision, setAgentDecision] = useState<AgentDecision | undefined>();
   const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | undefined>();
   const [sourceDiagnostics, setSourceDiagnostics] = useState<SourceDiagnostic[]>([]);
-  const [status, setStatus] = useState("准备读取真实 POI；如果接口不可用会自动使用 mock 兜底。");
+  const [status, setStatus] = useState("输入你的需求，我会结合附近地点和口碑给出推荐。");
   const [locationMessage, setLocationMessage] = useState("");
   const [isLocating, setIsLocating] = useState(false);
   const [expandedMapPlace, setExpandedMapPlace] = useState<Place | undefined>();
 
   const rawInput: DecisionInput = useMemo(
-    () => ({ prompt, people, budget, intent, moods: selectedMoods, location }),
-    [budget, intent, location, people, prompt, selectedMoods],
+    () => ({ prompt, people, budget, intent: "dinner", moods: selectedMoods, location: browserLocation ?? location }),
+    [browserLocation, budget, location, people, prompt, selectedMoods],
   );
   const effectiveInput = useMemo(() => getEffectiveInput(rawInput), [rawInput]);
   const recommendations = useMemo(() => recommendPlaces(places, effectiveInput, weather), [effectiveInput, places, weather]);
@@ -115,7 +101,7 @@ function App() {
 
     async function loadPlaces() {
       setIsLoading(true);
-      setStatus("正在查询周边 POI、天气和口碑来源...");
+      setStatus("正在为你筛选附近可去的地方...");
       try {
         const [placesData, weatherData, diagnosticsData] = await Promise.all([
           fetchNearbyPlaces(effectiveInput),
@@ -166,25 +152,20 @@ function App() {
       .catch(() => undefined);
   }, []);
 
-  function toggleMood(mood: Mood) {
-    setSelectedMoods((current) =>
-      current.includes(mood) ? current.filter((item) => item !== mood) : [...current, mood],
-    );
-  }
-
   function useBrowserLocation() {
     if (!navigator.geolocation) {
-      setLocationMessage("当前浏览器不支持定位。");
+      setLocationMessage("当前浏览器不支持定位，可以直接输入城市和区。");
       return;
     }
 
     setIsLocating(true);
-    setLocationMessage("正在请求浏览器定位...");
+    setLocationMessage("正在获取当前位置...");
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const nextLocation = `${position.coords.longitude.toFixed(6)},${position.coords.latitude.toFixed(6)}`;
-        setLocation(nextLocation);
-        setLocationMessage("已使用浏览器定位更新坐标。");
+        setBrowserLocation(nextLocation);
+        setLocation("浏览器当前位置");
+        setLocationMessage("已使用浏览器当前位置，不会在页面展示经纬度。");
         setIsLocating(false);
       },
       () => {
@@ -201,43 +182,49 @@ function App() {
         <div className="brand-row">
           <div>
             <p className="eyebrow">Nearby Decision Agent</p>
-            <h1>附近吃点啥</h1>
+            <h1>附近去哪儿</h1>
           </div>
           <span className={`status-pill ${isFallbackMode ? "fallback" : ""}`}>{modeLabel}</span>
         </div>
 
+        <section className="amap-login-card">
+          <div>
+            <span>第一步</span>
+            <strong>先登录高德地图</strong>
+            <p>提前登录后，展开地图和打开路线时会更顺，不会到最后一步才弹登录页。</p>
+          </div>
+          <a href={amapLoginUrl} target="_blank" rel="noreferrer">
+            打开高德
+            <ExternalLink size={14} />
+          </a>
+        </section>
+
         <label className="prompt-box">
           <span>
             <MessageSquareText size={18} />
-            直接告诉 Agent
+            你想找什么？
           </span>
-          <textarea value={prompt} onChange={(event) => setPrompt(event.target.value)} />
+          <textarea
+            value={prompt}
+            onChange={(event) => setPrompt(event.target.value)}
+            placeholder="例如：我们 3 个人在东城区，想找一家人均 100 左右、适合聊天的餐厅"
+          />
         </label>
-
-        <div className="control-grid">
-          <label>
-            <span>
-              <Users size={16} />
-              人数
-            </span>
-            <input type="number" min={1} max={12} value={people} onChange={(event) => setPeople(Number(event.target.value))} />
-          </label>
-          <label>
-            <span>
-              <Wallet size={16} />
-              人均预算
-            </span>
-            <input type="number" min={0} step={10} value={budget} onChange={(event) => setBudget(Number(event.target.value))} />
-          </label>
-        </div>
 
         <div className="prompt-box">
           <span>
             <MapPin size={16} />
-            当前位置，经度,纬度
+            你在哪儿？
           </span>
           <div className="location-row">
-            <input value={location} onChange={(event) => setLocation(event.target.value)} placeholder="116.397428,39.90923" />
+            <input
+              value={location}
+              onChange={(event) => {
+                setBrowserLocation(undefined);
+                setLocation(event.target.value);
+              }}
+              placeholder="例如：北京市东城区"
+            />
             <button type="button" className="icon-action" onClick={useBrowserLocation} title="使用浏览器定位" disabled={isLocating}>
               <LocateFixed size={18} />
             </button>
@@ -245,42 +232,10 @@ function App() {
           {locationMessage ? <small className="field-hint">{locationMessage}</small> : null}
         </div>
 
-        <div className="tag-section">
-          <p>想做什么</p>
-          <div className="intent-grid">
-            {intentOptions.map((item) => {
-              const Icon = intentIcons[item.id];
-              return (
-                <button type="button" className={intent === item.id ? "active" : ""} key={item.id} onClick={() => setIntent(item.id)}>
-                  <Icon size={18} />
-                  {item.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="tag-section">
-          <p>偏好标签</p>
-          <div className="mood-grid">
-            {moodOptions.map((mood) => (
-              <button type="button" className={effectiveInput.moods.includes(mood.id) ? "active" : ""} key={mood.id} onClick={() => toggleMood(mood.id)}>
-                {mood.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
         <div className="agent-state">
           <Search size={18} />
-          <span>
-            已解析：{effectiveInput.people} 人，人均 {effectiveInput.budget}，
-            {intentOptions.find((item) => item.id === effectiveInput.intent)?.label}。{status}
-          </span>
+          <span>{status}</span>
         </div>
-
-        {sourceStatus ? <SourceStatusBar status={sourceStatus} /> : null}
-        {sourceDiagnostics.length ? <SourceDiagnosticsPanel diagnostics={sourceDiagnostics} /> : null}
       </section>
 
       <section className="results-panel">
@@ -349,7 +304,7 @@ function App() {
               </div>
               <div className="score-badge">
                 <Star size={16} />
-                {Math.round(best.score)}
+                首选
               </div>
             </div>
 
@@ -374,14 +329,8 @@ function App() {
                   </span>
                 ) : null}
               </div>
-              <StoreInfo place={best} />
-              <QualityDiagnostics place={best} />
-              {agentDecision ? <AgentDecisionPanel decision={agentDecision} /> : null}
-              <p>{best.notes.join("；")}。</p>
-              {best.enrichment ? <p>{best.enrichment.summary}</p> : null}
+              <RecommendationDetails place={best} decision={agentDecision} />
               <ReviewLinks place={best} />
-              <strong>可能不适合：{best.caution}</strong>
-              {best.enrichment?.cautions.length ? <strong>口碑风险：{best.enrichment.cautions.join("；")}</strong> : null}
             </div>
 
             <div className="recommendation-list">
@@ -390,10 +339,7 @@ function App() {
                   <div className="rank">{index + 2}</div>
                   <div>
                     <h3>{place.name}</h3>
-                    <p>{place.notes[0]}</p>
-                    <StoreInfo place={place} compact />
-                    <QualityDiagnostics place={place} compact />
-                    {place.enrichment ? <p>{place.enrichment.summary}</p> : null}
+                    <RecommendationDetails place={place} compact />
                     <ReviewLinks place={place} compact />
                     <div className="compact-meta">
                       <span>{place.distanceMinutes} 分钟</span>
@@ -413,138 +359,42 @@ function App() {
   );
 }
 
-function SourceStatusBar({ status }: { status: SourceStatusResponse }) {
-  const items = [
-    ["高德", status.amap],
-    ["天气", status.openMeteo],
-    ["Tavily", status.tavily],
-    ["Bing", status.bing],
-    ["Exa", status.exa],
-    ["OpenAI", status.openai],
-  ] as const;
+function RecommendationDetails({ place, decision, compact = false }: { place: Place; decision?: AgentDecision; compact?: boolean }) {
+  const scoredReasons = "reasons" in place && Array.isArray(place.reasons) ? place.reasons : [];
+  const decisionReasons = decision?.bestPlaceId === place.id ? decision.rationale : [];
+  const visibleReasons = [...decisionReasons, ...scoredReasons, ...place.notes].map(toUserReason).filter(Boolean);
 
   return (
-    <div className="source-status">
-      {items.map(([label, active]) => (
-        <span className={active ? "online" : ""} key={label}>
-          {label}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function SourceDiagnosticsPanel({ diagnostics }: { diagnostics: SourceDiagnostic[] }) {
-  const sourceLabels: Record<SourceDiagnostic["source"], string> = {
-    amap: "高德",
-  };
-  const statusLabels: Record<SourceDiagnostic["status"], string> = {
-    ok: "可用",
-    empty: "空结果",
-    error: "失败",
-    "not-configured": "未配置",
-  };
-
-  return (
-    <div className="source-diagnostics">
-      <div className="quality-header">
-        <span>来源诊断</span>
-        <strong>{diagnostics.filter((item) => item.status === "ok").length}/{diagnostics.length}</strong>
-      </div>
-      {diagnostics.map((item) => (
-        <div className={`source-diagnostic-row ${item.status}`} key={item.source}>
-          <div>
-            <strong>{sourceLabels[item.source]}</strong>
-            <span>{statusLabels[item.status]} · {item.durationMs}ms</span>
-          </div>
-          <small>
-            原始 {item.rawCount} / 可用 {item.usableCount}
-            {item.sampleNames.length ? ` · ${item.sampleNames.slice(0, 2).join("、")}` : ` · ${item.message}`}
-          </small>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AgentDecisionPanel({ decision }: { decision: AgentDecision }) {
-  return (
-    <div className="agent-decision">
-      <div>
-        <span>{decision.source === "openai" ? "OpenAI Agent" : "规则兜底"}</span>
-        <h3>{decision.headline}</h3>
-      </div>
-      <ul>
-        {decision.rationale.map((item) => (
-          <li key={item}>{item}</li>
-        ))}
-      </ul>
-      {decision.tradeoffs.length ? <p>{decision.tradeoffs.join("；")}</p> : null}
-      {decision.followUpQuestion ? <small>{decision.followUpQuestion}</small> : null}
-    </div>
-  );
-}
-
-function StoreInfo({ place, compact = false }: { place: Place; compact?: boolean }) {
-  const categories = place.categories ?? [];
-  const dishes = place.recommendedDishes ?? [];
-  const warnings = place.dataWarnings ?? [];
-
-  if (!categories.length && !dishes.length && !place.phone && !warnings.length) return null;
-
-  return (
-    <div className={compact ? "store-info compact-store-info" : "store-info"}>
-      {categories.length ? <span>类型：{categories.slice(0, compact ? 2 : 4).join(" / ")}</span> : null}
-      {dishes.length ? <span>推荐：{dishes.slice(0, compact ? 2 : 4).join(" / ")}</span> : null}
-      {warnings.length ? <span>待核验：{warnings.slice(0, compact ? 1 : 3).join(" / ")}</span> : null}
-      {!compact && place.phone ? <span>电话：{place.phone}</span> : null}
-    </div>
-  );
-}
-
-function QualityDiagnostics({ place, compact = false }: { place: Place; compact?: boolean }) {
-  const reasons = place.qualityReasons ?? [];
-  const penalties = place.qualityPenalties ?? [];
-  const rankingScore = "rankingScore" in place && typeof place.rankingScore === "number" ? place.rankingScore : undefined;
-  const rankingSignals = "rankingSignals" in place && Array.isArray(place.rankingSignals) ? place.rankingSignals : [];
-
-  if (!place.qualityScore && !rankingScore && !reasons.length && !penalties.length && !rankingSignals.length) return null;
-
-  return (
-    <div className={compact ? "quality-panel compact-quality-panel" : "quality-panel"}>
-      <div className="quality-header">
-        <span>数据质量</span>
-        {place.qualityScore ? <strong>{place.qualityScore}</strong> : null}
-      </div>
-      {rankingScore ? (
-        <div className="quality-ranking">
-          <span>排序分 {rankingScore}</span>
-          {rankingSignals.slice(0, compact ? 1 : 3).map((signal) => (
-            <small key={signal}>{signal}</small>
-          ))}
-        </div>
-      ) : null}
-      {reasons.length ? (
-        <div className="quality-chips positive">
-          {reasons.slice(0, compact ? 2 : 4).map((reason) => (
-            <span key={reason}>{reason}</span>
-          ))}
-        </div>
-      ) : null}
-      {penalties.length ? (
-        <div className="quality-chips negative">
-          {penalties.slice(0, compact ? 1 : 3).map((penalty) => (
-            <span key={penalty}>{penalty}</span>
-          ))}
-        </div>
+    <div className={compact ? "recommendation-detail compact-recommendation-detail" : "recommendation-detail"}>
+      <p>
+        <strong>地址</strong>
+        {place.address}
+      </p>
+      <p>
+        <strong>推荐理由</strong>
+        {visibleReasons.slice(0, compact ? 2 : 4).join("；")}
+      </p>
+      {!compact && place.enrichment?.summary ? (
+        <p>
+          <strong>口碑参考</strong>
+          {place.enrichment.summary}
+        </p>
       ) : null}
     </div>
   );
+}
+
+function toUserReason(reason: string) {
+  if (/数据完整度|排序分|来源|POI|高德提供基础/.test(reason)) return "";
+  if (reason.includes("类型匹配")) return "和你描述的需求匹配";
+  if (reason.includes("预算匹配")) return "预算上比较合适";
+  if (reason.includes("人数适配")) return "适合当前人数";
+  if (reason.includes("偏好标签")) return "氛围和你想要的感觉接近";
+  return reason;
 }
 
 function ReviewLinks({ place, compact = false }: { place: Place; compact?: boolean }) {
-  const links = place.enrichment?.links ?? [];
-  if (!links.length) return null;
+  const links = [...(place.enrichment?.links ?? []), ...buildReviewSearchLinks(place)].slice(0, compact ? 3 : 6);
 
   return (
     <div className={compact ? "source-links compact-source-links" : "source-links"}>
@@ -557,6 +407,15 @@ function ReviewLinks({ place, compact = false }: { place: Place; compact?: boole
       ))}
     </div>
   );
+}
+
+function buildReviewSearchLinks(place: Place) {
+  const keyword = encodeURIComponent(`${place.name} ${place.address}`);
+  return [
+    { title: `在小红书搜索 ${place.name}`, url: `https://www.xiaohongshu.com/search_result?keyword=${keyword}`, platform: "xiaohongshu" as const },
+    { title: `在大众点评搜索 ${place.name}`, url: `https://www.dianping.com/search/keyword/2/0_${keyword}`, platform: "dianping" as const },
+    { title: `在美团搜索 ${place.name}`, url: `https://www.meituan.com/s/${keyword}/`, platform: "meituan" as const },
+  ];
 }
 
 createRoot(document.getElementById("root")!).render(<App />);

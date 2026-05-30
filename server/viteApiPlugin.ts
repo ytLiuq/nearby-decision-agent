@@ -47,6 +47,13 @@ type AmapWalkingResponse = {
   };
 };
 
+type AmapGeocodeResponse = {
+  status: string;
+  geocodes?: Array<{
+    location?: string;
+  }>;
+};
+
 
 type NormalizedPlace = {
   id: string;
@@ -428,9 +435,10 @@ async function diagnoseSource(
 }
 
 async function fetchAmapPlaces(apiKey: string, intent: Intent, location: string): Promise<NormalizedPlace[]> {
+  const resolvedLocation = await resolveAmapLocation(apiKey, location);
   const amapUrl = new URL("https://restapi.amap.com/v5/place/around");
   amapUrl.searchParams.set("key", apiKey);
-  amapUrl.searchParams.set("location", location);
+  amapUrl.searchParams.set("location", resolvedLocation);
   amapUrl.searchParams.set("keywords", intentSearch[intent].keyword);
   amapUrl.searchParams.set("types", intentSearch[intent].amapTypes);
   amapUrl.searchParams.set("radius", "3000");
@@ -444,7 +452,21 @@ async function fetchAmapPlaces(apiKey: string, intent: Intent, location: string)
   if (payload.status !== "1") return [];
 
   const places = (payload.pois ?? []).map((poi) => normalizeAmapPoi(poi, intent));
-  return enrichAmapWalkingRoutes(apiKey, location, places);
+  return enrichAmapWalkingRoutes(apiKey, resolvedLocation, places);
+}
+
+async function resolveAmapLocation(apiKey: string, location: string) {
+  if (parseOptionalLngLat(location).lng !== undefined) return location;
+
+  const geocodeUrl = new URL("https://restapi.amap.com/v3/geocode/geo");
+  geocodeUrl.searchParams.set("key", apiKey);
+  geocodeUrl.searchParams.set("address", location || "北京市东城区");
+  geocodeUrl.searchParams.set("output", "json");
+
+  const response = await fetch(geocodeUrl);
+  const payload = (await response.json()) as AmapGeocodeResponse;
+  const resolved = payload.geocodes?.[0]?.location;
+  return resolved || "116.397428,39.90923";
 }
 
 function normalizeAmapPoi(poi: AmapPoi, intent: Intent): NormalizedPlace {
