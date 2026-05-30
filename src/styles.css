@@ -136,6 +136,12 @@ h3 {
   font-weight: 650;
 }
 
+.status-pill.fallback {
+  color: var(--primary-active);
+  background: #f4dfd6;
+  border-color: rgba(204, 120, 92, 0.35);
+}
+
 .prompt-box {
   display: grid;
   gap: 10px;
@@ -374,6 +380,8 @@ input:focus {
   border-radius: 12px;
   color: inherit;
   background:
+    radial-gradient(circle at 22% 24%, rgba(204, 120, 92, 0.28), transparent 28%),
+    radial-gradient(circle at 78% 62%, rgba(232, 165, 90, 0.18), transparent 26%),
     linear-gradient(90deg, rgba(250, 249, 245, 0.08) 1px, transparent 1px),
     linear-gradient(rgba(250, 249, 245, 0.08) 1px, transparent 1px),
     var(--surface-dark);
@@ -393,9 +401,92 @@ input:focus {
   min-height: 420px;
 }
 
+.map-glow {
+  position: absolute;
+  border-radius: 999px;
+  filter: blur(1px);
+  opacity: 0.42;
+}
+
+.map-glow-a {
+  width: 180px;
+  height: 180px;
+  left: 8%;
+  top: 12%;
+  background: rgba(204, 120, 92, 0.16);
+}
+
+.map-glow-b {
+  width: 150px;
+  height: 150px;
+  right: 12%;
+  bottom: 12%;
+  background: rgba(250, 249, 245, 0.08);
+}
+
+.map-topbar {
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  top: 16px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: 1px solid rgba(250, 249, 245, 0.12);
+  border-radius: 12px;
+  padding: 10px 12px;
+  color: var(--on-dark);
+  background: rgba(24, 23, 21, 0.72);
+  backdrop-filter: blur(10px);
+}
+
+.map-topbar span {
+  color: var(--on-dark-soft);
+  font-size: 0.78rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.map-topbar strong {
+  overflow: hidden;
+  max-width: 62%;
+  font-size: 0.9rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-zone {
+  position: absolute;
+  z-index: 1;
+  border: 1px solid rgba(250, 249, 245, 0.1);
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: rgba(250, 249, 245, 0.72);
+  background: rgba(37, 35, 32, 0.58);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.zone-a {
+  left: 18%;
+  top: 33%;
+}
+
+.zone-b {
+  right: 20%;
+  top: 29%;
+}
+
+.zone-c {
+  right: 12%;
+  bottom: 31%;
+}
+
 .map-road {
   position: absolute;
-  background: var(--surface-dark-elevated);
+  background: rgba(250, 249, 245, 0.12);
   border: 1px solid rgba(250, 249, 245, 0.08);
 }
 
@@ -415,6 +506,14 @@ input:focus {
   transform: rotate(24deg);
 }
 
+.road-c {
+  width: 92%;
+  height: 24px;
+  left: 6%;
+  top: 62%;
+  transform: rotate(8deg);
+}
+
 .user-dot,
 .place-pin {
   position: absolute;
@@ -426,6 +525,7 @@ input:focus {
 }
 
 .user-dot {
+  z-index: 2;
   left: 46%;
   top: 44%;
   width: 44px;
@@ -435,6 +535,7 @@ input:focus {
 }
 
 .place-pin {
+  z-index: 2;
   width: 36px;
   height: 36px;
   color: #ffffff;
@@ -447,7 +548,7 @@ input:focus {
 
 .map-caption {
   position: absolute;
-  left: 14px;
+  right: 14px;
   bottom: 14px;
   z-index: 2;
   border-radius: 999px;
@@ -456,6 +557,46 @@ input:focus {
   background: rgba(37, 35, 32, 0.88);
   font-size: 0.86rem;
   font-weight: 700;
+}
+
+.map-place-strip {
+  position: absolute;
+  left: 14px;
+  bottom: 14px;
+  z-index: 2;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  max-width: calc(100% - 170px);
+}
+
+.map-place-strip span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 180px;
+  border: 1px solid rgba(250, 249, 245, 0.12);
+  border-radius: 999px;
+  padding: 7px 10px;
+  color: var(--on-dark);
+  background: rgba(24, 23, 21, 0.74);
+  font-size: 0.8rem;
+  font-weight: 650;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.map-place-strip strong {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  color: #ffffff;
+  background: var(--primary);
+  font-size: 0.72rem;
 }
 
 .map-expanded {
@@ -788,5 +929,19 @@ input:focus {
   .answer-header {
     align-items: flex-start;
     flex-direction: column;
+  }
+
+  .map-place-strip {
+    display: none;
+  }
+
+  .map-topbar {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .map-topbar strong {
+    max-width: 100%;
   }
 }

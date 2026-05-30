@@ -93,12 +93,19 @@ function App() {
   const recommendations = useMemo(() => recommendPlaces(places, effectiveInput, weather), [effectiveInput, places, weather]);
   const best = recommendations[0];
   const mapPlace = expandedMapPlace ?? best;
+  const mapPreviewPlaces = recommendations.slice(0, 3);
+  const amapDiagnostic = sourceDiagnostics.find((item) => item.source === "amap");
+  const isFallbackMode = !isLoading && source === "mock";
   const modeLabel = isLoading
     ? "加载中"
     : source === "mock"
-      ? sourceStatus?.amap
-        ? "真实接口待返回"
-        : "Mock 兜底"
+      ? sourceStatus?.amap === false || amapDiagnostic?.status === "not-configured"
+        ? "演示数据：缺少高德 Key"
+        : amapDiagnostic?.status === "error"
+          ? "演示数据：高德请求失败"
+          : amapDiagnostic?.status === "empty"
+            ? "演示数据：附近暂无结果"
+            : "演示数据"
       : source === "amap"
         ? "高德实时 POI"
         : "实时 POI";
@@ -196,7 +203,7 @@ function App() {
             <p className="eyebrow">Nearby Decision Agent</p>
             <h1>附近吃点啥</h1>
           </div>
-          <span className="status-pill">{modeLabel}</span>
+          <span className={`status-pill ${isFallbackMode ? "fallback" : ""}`}>{modeLabel}</span>
         </div>
 
         <label className="prompt-box">
@@ -286,8 +293,18 @@ function App() {
             if ((event.key === "Enter" || event.key === " ") && mapPlace) setExpandedMapPlace(mapPlace);
           }}
         >
+          <div className="map-glow map-glow-a" />
+          <div className="map-glow map-glow-b" />
+          <div className="map-topbar">
+            <span>Nearby map</span>
+            <strong>{mapPlace?.name ?? "当前位置"}</strong>
+          </div>
+          <div className="map-zone zone-a">商圈</div>
+          <div className="map-zone zone-b">步行圈</div>
+          <div className="map-zone zone-c">推荐密度</div>
           <div className="map-road road-a" />
           <div className="map-road road-b" />
+          <div className="map-road road-c" />
           <div className="user-dot">你</div>
           {recommendations.map((place, index) => (
             <span
@@ -301,6 +318,14 @@ function App() {
               {index + 1}
             </span>
           ))}
+          <div className="map-place-strip">
+            {mapPreviewPlaces.map((place, index) => (
+              <span key={place.id}>
+                <strong>{index + 1}</strong>
+                {place.name}
+              </span>
+            ))}
+          </div>
           <span className="map-caption">{expandedMapPlace ? `${expandedMapPlace.name} 附近地图` : "点击展开附近地图"}</span>
           {expandedMapPlace ? (
             <span className="map-expanded" onClick={(event) => event.stopPropagation()}>
