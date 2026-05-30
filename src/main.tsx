@@ -50,15 +50,25 @@ function getPlaceMapUrl(place: Place | undefined, fallbackLocation: string) {
   return `https://uri.amap.com/marker?position=${lng},${lat}&name=${name}&src=nearby-decision-agent&coordinate=gaode&callnative=0`;
 }
 
-const amapLoginUrl = "https://www.amap.com/";
+function getMapCoordinates(place: Place | undefined, fallbackLocation: string) {
+  const fallback = parseLocation(fallbackLocation);
+  if (place?.longitude && place.latitude) return { lng: place.longitude, lat: place.latitude };
+  return fallback;
+}
+
+function getOsmMapUrl(coords: { lng: number; lat: number } | undefined) {
+  if (!coords) return undefined;
+  const delta = 0.012;
+  const bbox = [coords.lng - delta, coords.lat - delta, coords.lng + delta, coords.lat + delta].join(",");
+  return `https://www.openstreetmap.org/export/embed.html?bbox=${bbox}&layer=mapnik&marker=${coords.lat},${coords.lng}`;
+}
 
 function App() {
   const [prompt, setPrompt] = useState("我们 3 个人，想在附近吃点不太贵、能聊天的");
   const [people] = useState(3);
   const [budget] = useState(100);
   const [selectedMoods] = useState<Mood[]>([]);
-  const [location, setLocation] = useState("北京市东城区");
-  const [browserLocation, setBrowserLocation] = useState<string | undefined>();
+  const [location, setLocation] = useState("");
   const [places, setPlaces] = useState<Place[]>(mockPlaces);
   const [source, setSource] = useState<PlaceSource>("mock");
   const [isLoading, setIsLoading] = useState(false);
@@ -70,16 +80,21 @@ function App() {
   const [locationMessage, setLocationMessage] = useState("");
   const [isLocating, setIsLocating] = useState(false);
   const [expandedMapPlace, setExpandedMapPlace] = useState<Place | undefined>();
+  const [showLocationDialog, setShowLocationDialog] = useState(true);
 
   const rawInput: DecisionInput = useMemo(
-    () => ({ prompt, people, budget, intent: "dinner", moods: selectedMoods, location: browserLocation ?? location }),
-    [browserLocation, budget, location, people, prompt, selectedMoods],
+    () => ({ prompt, people, budget, intent: "dinner", moods: selectedMoods, location }),
+    [budget, location, people, prompt, selectedMoods],
   );
   const effectiveInput = useMemo(() => getEffectiveInput(rawInput), [rawInput]);
+  const hasUsableLocation = Boolean(parseLocation(effectiveInput.location));
   const recommendations = useMemo(() => recommendPlaces(places, effectiveInput, weather), [effectiveInput, places, weather]);
-  const best = recommendations[0];
+  const visibleRecommendations = hasUsableLocation ? recommendations : [];
+  const best = visibleRecommendations[0];
   const mapPlace = expandedMapPlace ?? best;
-  const mapPreviewPlaces = recommendations.slice(0, 3);
+  const mapPreviewPlaces = visibleRecommendations.slice(0, 3);
+  const mapCoordinates = getMapCoordinates(mapPlace, effectiveInput.location);
+  const mapEmbedUrl = getOsmMapUrl(mapCoordinates);
   const amapDiagnostic = sourceDiagnostics.find((item) => item.source === "amap");
   const isFallbackMode = !isLoading && source === "mock";
   const modeLabel = isLoading
@@ -100,6 +115,16 @@ function App() {
     const controller = new AbortController();
 
     async function loadPlaces() {
+      if (!parseLocation(effectiveInput.location)) {
+        setPlaces(mockPlaces);
+        setSource("mock");
+        setWeather(undefined);
+        setAgentDecision(undefined);
+        setSourceDiagnostics([]);
+        setStatus("请先允许定位，或输入经纬度。拿到位置后，推荐和地图才会按你附近刷新。");
+        return;
+      }
+
       setIsLoading(true);
       setStatus("正在为你筛选附近可去的地方...");
       try {
@@ -115,28 +140,26 @@ function App() {
         setSource(placesData.source);
         setWeather(weatherData.weather);
         setSourceDiagnostics(diagnosticsData?.diagnostics ?? []);
-        setStatus(`${placesData.message ?? "地点数据已更新"}；${weatherData.message ?? "天气上下文已更新"}`);
+        setStatus(placesData.source === "mock" ? "地点接口暂未返回真实结果，正在使用演示数据。" : "已按当前位置更新附近地点。");
 
         const enrichmentData = await fetchReviewEnrichments(basePlaces, effectiveInput);
         if (controller.signal.aborted) return;
         const enrichmentById = new Map(enrichmentData.enrichments.map((item) => [item.placeId, item]));
         const enrichedPlaces = basePlaces.map((place) => ({ ...place, enrichment: enrichmentById.get(place.id) }));
         setPlaces(enrichedPlaces);
-        setStatus(`${placesData.message ?? "地点数据已更新"}；${weatherData.message ?? "天气上下文已更新"}；${enrichmentData.message ?? "口碑补充已完成"}`);
+        setStatus("已按当前位置更新地点，并补充口碑来源。");
 
         const decisionData = await fetchAgentDecision(enrichedPlaces, effectiveInput, weatherData.weather);
         if (controller.signal.aborted) return;
         setAgentDecision(decisionData.decision);
-        setStatus(
-          `${placesData.message ?? "地点数据已更新"}；${weatherData.message ?? "天气上下文已更新"}；${enrichmentData.message ?? "口碑补充已完成"}；${decisionData.message ?? "Agent 决策已完成"}`,
-        );
+        setStatus(decisionData.decision.source === "openai" ? "已结合当前位置、天气和口碑生成推荐。" : "已结合当前位置生成推荐，模型暂不可用时使用规则兜底。");
       } catch {
         if (controller.signal.aborted) return;
         setAgentDecision(undefined);
         setSourceDiagnostics([]);
         setPlaces(mockPlaces);
         setSource("mock");
-        setStatus("外部来源暂不可用，已自动回退到 mock 数据");
+        setStatus("外部服务暂不可用，已切换到演示数据。请稍后重试或检查 API 配置。");
       } finally {
         if (!controller.signal.aborted) setIsLoading(false);
       }
@@ -154,22 +177,22 @@ function App() {
 
   function useBrowserLocation() {
     if (!navigator.geolocation) {
-      setLocationMessage("当前浏览器不支持定位，可以直接输入城市和区。");
+      setLocationMessage("当前浏览器不支持定位，请手动输入经纬度。");
       return;
     }
 
     setIsLocating(true);
-    setLocationMessage("正在获取当前位置...");
+    setLocationMessage("正在请求浏览器定位权限...");
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const nextLocation = `${position.coords.longitude.toFixed(6)},${position.coords.latitude.toFixed(6)}`;
-        setBrowserLocation(nextLocation);
-        setLocation("浏览器当前位置");
-        setLocationMessage("已使用浏览器当前位置，不会在页面展示经纬度。");
+        setLocation(nextLocation);
+        setLocationMessage("已定位到当前位置，将用这组经纬度查询附近地点。");
+        setShowLocationDialog(false);
         setIsLocating(false);
       },
       () => {
-        setLocationMessage("定位失败，请检查浏览器定位权限。");
+        setLocationMessage("定位失败。请允许浏览器定位，或手动输入经纬度。");
         setIsLocating(false);
       },
       { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
@@ -178,6 +201,32 @@ function App() {
 
   return (
     <main className="app-shell">
+      {showLocationDialog ? (
+        <div className="location-modal" role="dialog" aria-modal="true" aria-labelledby="location-modal-title">
+          <div className="location-modal-card">
+            <p className="eyebrow">Location</p>
+            <h2 id="location-modal-title">先确定你的位置</h2>
+            <p>这个应用需要经纬度来拉取你附近的 POI 和地图。点击“使用当前位置”后，浏览器会弹出定位授权。</p>
+            <div className="location-modal-actions">
+              <button type="button" className="primary-action" onClick={useBrowserLocation} disabled={isLocating}>
+                {isLocating ? "定位中..." : "使用当前位置"}
+              </button>
+              <button
+                type="button"
+                className="secondary-action"
+                onClick={() => {
+                  setLocation("116.397428,39.90923");
+                  setLocationMessage("已使用北京示例坐标。你也可以手动改成自己的经纬度。");
+                  setShowLocationDialog(false);
+                }}
+              >
+                先用示例位置
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <section className="decision-panel">
         <div className="brand-row">
           <div>
@@ -186,18 +235,6 @@ function App() {
           </div>
           <span className={`status-pill ${isFallbackMode ? "fallback" : ""}`}>{modeLabel}</span>
         </div>
-
-        <section className="amap-login-card">
-          <div>
-            <span>第一步</span>
-            <strong>先登录高德地图</strong>
-            <p>提前登录后，展开地图和打开路线时会更顺，不会到最后一步才弹登录页。</p>
-          </div>
-          <a href={amapLoginUrl} target="_blank" rel="noreferrer">
-            打开高德
-            <ExternalLink size={14} />
-          </a>
-        </section>
 
         <label className="prompt-box">
           <span>
@@ -214,16 +251,15 @@ function App() {
         <div className="prompt-box">
           <span>
             <MapPin size={16} />
-            你在哪儿？
+            你在哪儿？输入经纬度或点击定位
           </span>
           <div className="location-row">
             <input
               value={location}
               onChange={(event) => {
-                setBrowserLocation(undefined);
                 setLocation(event.target.value);
               }}
-              placeholder="例如：北京市东城区"
+              placeholder="例如：116.397428,39.90923"
             />
             <button type="button" className="icon-action" onClick={useBrowserLocation} title="使用浏览器定位" disabled={isLocating}>
               <LocateFixed size={18} />
@@ -251,8 +287,8 @@ function App() {
           <div className="map-glow map-glow-a" />
           <div className="map-glow map-glow-b" />
           <div className="map-topbar">
-            <span>Nearby map</span>
-            <strong>{mapPlace?.name ?? "当前位置"}</strong>
+            <span>{mapCoordinates ? "你附近的地图" : "等待定位"}</span>
+            <strong>{mapPlace?.name ?? "先定位后显示附近地图"}</strong>
           </div>
           <div className="map-zone zone-a">商圈</div>
           <div className="map-zone zone-b">步行圈</div>
@@ -260,8 +296,10 @@ function App() {
           <div className="map-road road-a" />
           <div className="map-road road-b" />
           <div className="map-road road-c" />
+          {mapEmbedUrl ? <iframe className="map-frame" title="当前位置附近地图" src={mapEmbedUrl} loading="lazy" /> : null}
+          {!mapEmbedUrl ? <div className="map-empty">允许定位后，这里会显示你附近的地图</div> : null}
           <div className="user-dot">你</div>
-          {recommendations.map((place, index) => (
+          {visibleRecommendations.map((place, index) => (
             <span
               className={`place-pin pin-${index + 1} ${expandedMapPlace?.id === place.id ? "selected" : ""}`}
               key={place.id}
@@ -287,10 +325,14 @@ function App() {
               <button type="button" className="map-close" onClick={() => setExpandedMapPlace(undefined)} title="收起地图">
                 <X size={16} />
               </button>
-              <iframe title={`${expandedMapPlace.name} 附近地图`} src={getPlaceMapUrl(expandedMapPlace, location)} loading="lazy" />
-              <a href={getPlaceMapUrl(expandedMapPlace, location)} target="_blank" rel="noreferrer">
-                在高德地图打开
-              </a>
+              {mapEmbedUrl ? <iframe title={`${expandedMapPlace.name} 附近地图`} src={mapEmbedUrl} loading="lazy" /> : null}
+              <div className="map-expanded-footer">
+                <strong>{expandedMapPlace.name}</strong>
+                <a href={getPlaceMapUrl(expandedMapPlace, location)} target="_blank" rel="noreferrer">
+                  用高德打开
+                  <ExternalLink size={14} />
+                </a>
+              </div>
             </span>
           ) : null}
         </div>
@@ -334,7 +376,7 @@ function App() {
             </div>
 
             <div className="recommendation-list">
-              {recommendations.slice(1).map((place, index) => (
+              {visibleRecommendations.slice(1).map((place, index) => (
                 <article className="place-card" key={place.id}>
                   <div className="rank">{index + 2}</div>
                   <div>
