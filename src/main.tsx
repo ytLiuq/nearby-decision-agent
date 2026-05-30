@@ -7,13 +7,12 @@ import {
   LocateFixed,
   MapPin,
   MessageSquareText,
-  Search,
   Star,
   Wallet,
   X,
 } from "lucide-react";
 import { getEffectiveInput, recommendPlaces } from "./agent/recommender";
-import { fetchAgentDecision, fetchNearbyPlaces, fetchReviewEnrichments, fetchSourceDiagnostics, fetchSourceStatus, fetchWeather } from "./data/placesClient";
+import { fetchAgentDecision, fetchNearbyPlaces, fetchReviewEnrichments, fetchWeather } from "./data/placesClient";
 import { mockPlaces } from "./data/mockPlaces";
 import type {
   AgentDecision,
@@ -22,8 +21,6 @@ import type {
   Place,
   PlaceSource,
   ReviewPlatform,
-  SourceDiagnostic,
-  SourceStatusResponse,
   WeatherContext,
 } from "./domain";
 import "./styles.css";
@@ -74,8 +71,6 @@ function App() {
   const [isLoading, setIsLoading] = useState(false);
   const [weather, setWeather] = useState<WeatherContext | undefined>();
   const [agentDecision, setAgentDecision] = useState<AgentDecision | undefined>();
-  const [sourceStatus, setSourceStatus] = useState<SourceStatusResponse | undefined>();
-  const [sourceDiagnostics, setSourceDiagnostics] = useState<SourceDiagnostic[]>([]);
   const [status, setStatus] = useState("输入你的需求，我会结合附近地点和口碑给出推荐。");
   const [locationMessage, setLocationMessage] = useState("");
   const [isLocating, setIsLocating] = useState(false);
@@ -93,23 +88,9 @@ function App() {
   const best = visibleRecommendations[0];
   const mapPlace = expandedMapPlace ?? best;
   const mapPreviewPlaces = visibleRecommendations.slice(0, 3);
-  const mapCoordinates = getMapCoordinates(mapPlace, effectiveInput.location);
-  const mapEmbedUrl = getOsmMapUrl(mapCoordinates);
-  const amapDiagnostic = sourceDiagnostics.find((item) => item.source === "amap");
-  const isFallbackMode = !isLoading && source === "mock";
-  const modeLabel = isLoading
-    ? "加载中"
-    : source === "mock"
-      ? sourceStatus?.amap === false || amapDiagnostic?.status === "not-configured"
-        ? "演示数据：缺少高德 Key"
-        : amapDiagnostic?.status === "error"
-          ? "演示数据：高德请求失败"
-          : amapDiagnostic?.status === "empty"
-            ? "演示数据：附近暂无结果"
-            : "演示数据"
-      : source === "amap"
-        ? "高德实时 POI"
-        : "实时 POI";
+  const userCoordinates = parseLocation(effectiveInput.location);
+  const previewMapUrl = getOsmMapUrl(userCoordinates);
+  const expandedMapUrl = getOsmMapUrl(getMapCoordinates(expandedMapPlace, effectiveInput.location));
 
   useEffect(() => {
     const controller = new AbortController();
@@ -120,7 +101,6 @@ function App() {
         setSource("mock");
         setWeather(undefined);
         setAgentDecision(undefined);
-        setSourceDiagnostics([]);
         setStatus("请先允许定位，或输入经纬度。拿到位置后，推荐和地图才会按你附近刷新。");
         return;
       }
@@ -128,10 +108,9 @@ function App() {
       setIsLoading(true);
       setStatus("正在为你筛选附近可去的地方...");
       try {
-        const [placesData, weatherData, diagnosticsData] = await Promise.all([
+        const [placesData, weatherData] = await Promise.all([
           fetchNearbyPlaces(effectiveInput),
           fetchWeather(effectiveInput),
-          fetchSourceDiagnostics(effectiveInput).catch(() => undefined),
         ]);
         if (controller.signal.aborted) return;
 
@@ -139,7 +118,6 @@ function App() {
         setPlaces(basePlaces);
         setSource(placesData.source);
         setWeather(weatherData.weather);
-        setSourceDiagnostics(diagnosticsData?.diagnostics ?? []);
         setStatus(placesData.source === "mock" ? "地点接口暂未返回真实结果，正在使用演示数据。" : "已按当前位置更新附近地点。");
 
         const enrichmentData = await fetchReviewEnrichments(basePlaces, effectiveInput);
@@ -156,7 +134,6 @@ function App() {
       } catch {
         if (controller.signal.aborted) return;
         setAgentDecision(undefined);
-        setSourceDiagnostics([]);
         setPlaces(mockPlaces);
         setSource("mock");
         setStatus("外部服务暂不可用，已切换到演示数据。请稍后重试或检查 API 配置。");
@@ -168,12 +145,6 @@ function App() {
     loadPlaces();
     return () => controller.abort();
   }, [effectiveInput]);
-
-  useEffect(() => {
-    fetchSourceStatus()
-      .then(setSourceStatus)
-      .catch(() => undefined);
-  }, []);
 
   function useBrowserLocation() {
     if (!navigator.geolocation) {
@@ -233,7 +204,6 @@ function App() {
             <p className="eyebrow">Nearby Decision Agent</p>
             <h1>附近去哪儿</h1>
           </div>
-          <span className={`status-pill ${isFallbackMode ? "fallback" : ""}`}>{modeLabel}</span>
         </div>
 
         <label className="prompt-box">
@@ -268,13 +238,17 @@ function App() {
           {locationMessage ? <small className="field-hint">{locationMessage}</small> : null}
         </div>
 
-        <div className="agent-state">
-          <Search size={18} />
-          <span>{status}</span>
-        </div>
+        {!isLoading && !hasUsableLocation ? <div className="agent-state">{status}</div> : null}
       </section>
 
       <section className="results-panel">
+        {isLoading ? (
+          <div className="loading-panel" role="status" aria-live="polite">
+            <span className="loading-spinner" />
+            <strong>正在更新附近推荐</strong>
+            <p>正在读取位置、地点、天气和口碑信息。</p>
+          </div>
+        ) : null}
         <div
           role="button"
           tabIndex={0}
@@ -284,47 +258,34 @@ function App() {
             if ((event.key === "Enter" || event.key === " ") && mapPlace) setExpandedMapPlace(mapPlace);
           }}
         >
-          <div className="map-glow map-glow-a" />
-          <div className="map-glow map-glow-b" />
           <div className="map-topbar">
-            <span>{mapCoordinates ? "你附近的地图" : "等待定位"}</span>
-            <strong>{mapPlace?.name ?? "先定位后显示附近地图"}</strong>
+            <span>{userCoordinates ? "你附近的真实地图" : "等待定位"}</span>
+            <strong>{mapPlace?.name ?? "先定位后显示地图"}</strong>
           </div>
-          <div className="map-zone zone-a">商圈</div>
-          <div className="map-zone zone-b">步行圈</div>
-          <div className="map-zone zone-c">推荐密度</div>
-          <div className="map-road road-a" />
-          <div className="map-road road-b" />
-          <div className="map-road road-c" />
-          {!mapEmbedUrl ? <div className="map-empty">允许定位后，这里会显示你附近的地图</div> : null}
-          <div className="user-dot">你</div>
-          {visibleRecommendations.map((place, index) => (
-            <span
-              className={`place-pin pin-${index + 1} ${expandedMapPlace?.id === place.id ? "selected" : ""}`}
-              key={place.id}
-              onClick={(event) => {
-                event.stopPropagation();
-                setExpandedMapPlace(place);
-              }}
-            >
-              {index + 1}
-            </span>
-          ))}
+          {previewMapUrl ? <iframe className="map-frame" title="你附近的真实地图" src={previewMapUrl} loading="lazy" /> : null}
+          {!previewMapUrl ? <div className="map-empty">允许定位后，这里会显示你附近的真实地图</div> : null}
           <div className="map-place-strip">
             {mapPreviewPlaces.map((place, index) => (
-              <span key={place.id}>
+              <button
+                type="button"
+                key={place.id}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setExpandedMapPlace(place);
+                }}
+              >
                 <strong>{index + 1}</strong>
                 {place.name}
-              </span>
+              </button>
             ))}
           </div>
-          <span className="map-caption">{expandedMapPlace ? `${expandedMapPlace.name} 附近地图` : "点击展开附近地图"}</span>
+          <span className="map-caption">{expandedMapPlace ? `${expandedMapPlace.name} 附近地图` : "点击展开地图"}</span>
           {expandedMapPlace ? (
             <span className="map-expanded" onClick={(event) => event.stopPropagation()}>
               <button type="button" className="map-close" onClick={() => setExpandedMapPlace(undefined)} title="收起地图">
                 <X size={16} />
               </button>
-              {mapEmbedUrl ? <iframe title={`${expandedMapPlace.name} 附近地图`} src={mapEmbedUrl} loading="lazy" /> : null}
+              {expandedMapUrl ? <iframe title={`${expandedMapPlace.name} 附近地图`} src={expandedMapUrl} loading="lazy" /> : null}
               <div className="map-expanded-footer">
                 <strong>{expandedMapPlace.name}</strong>
                 <a href={getPlaceMapUrl(expandedMapPlace, location)} target="_blank" rel="noreferrer">
