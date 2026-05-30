@@ -1,5 +1,5 @@
-import { getDecisionResponse } from "../server/viteApiPlugin";
-import { parseJsonBody, sendJson } from "../server/vercelHttp";
+import { getDecisionResponse } from "../server/viteApiPlugin.js";
+import { parseJsonBody, sendJson } from "../server/vercelHttp.js";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {

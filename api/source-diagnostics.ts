@@ -1,5 +1,5 @@
-import { getSourceDiagnosticsResponse } from "../server/viteApiPlugin";
-import { queryToSearchParams, sendJson } from "../server/vercelHttp";
+import { getSourceDiagnosticsResponse } from "../server/viteApiPlugin.js";
+import { queryToSearchParams, sendJson } from "../server/vercelHttp.js";
 
 export default async function handler(req: any, res: any) {
   try {

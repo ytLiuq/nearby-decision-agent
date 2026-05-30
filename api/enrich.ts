@@ -1,5 +1,5 @@
-import { getEnrichmentResponse } from "../server/viteApiPlugin";
-import { parseJsonBody, sendJson } from "../server/vercelHttp";
+import { getEnrichmentResponse } from "../server/viteApiPlugin.js";
+import { parseJsonBody, sendJson } from "../server/vercelHttp.js";
 
 export default async function handler(req: any, res: any) {
   if (req.method !== "POST") {
