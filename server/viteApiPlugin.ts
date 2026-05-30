@@ -93,13 +93,18 @@ type WeatherContext = {
   condition: string;
 };
 
+function getAmapKey(env: Record<string, string | undefined>) {
+  return env.AMAP_WEB_SERVICE_KEY || env.AMAP_KEY;
+}
+
 export function createNearbyApiPlugin(env: Record<string, string>): Plugin[] {
+  const amapKey = getAmapKey(env);
   return [
     placesPlugin({
-      amapKey: env.AMAP_WEB_SERVICE_KEY,
+      amapKey,
     }),
     sourceDiagnosticsPlugin({
-      amapKey: env.AMAP_WEB_SERVICE_KEY,
+      amapKey,
     }),
     weatherPlugin(),
     statusPlugin(env),
@@ -119,7 +124,7 @@ export function createNearbyApiPlugin(env: Record<string, string>): Plugin[] {
 
 export function getSourceStatus(env: Record<string, string | undefined>) {
   return {
-    amap: Boolean(env.AMAP_WEB_SERVICE_KEY),
+    amap: Boolean(getAmapKey(env)),
     tavily: Boolean(env.TAVILY_API_KEY),
     bing: Boolean(env.BING_SEARCH_KEY),
     exa: Boolean(env.EXA_API_KEY),
@@ -132,9 +137,10 @@ export async function getPlacesResponse(env: Record<string, string | undefined>,
   const intent = normalizeIntent(params.get("intent"));
   const location = params.get("location") || "116.397428,39.90923";
   const budget = Number(params.get("budget") ?? "0");
+  const amapKey = getAmapKey(env);
 
   const results = await Promise.allSettled([
-    env.AMAP_WEB_SERVICE_KEY ? fetchAmapPlaces(env.AMAP_WEB_SERVICE_KEY, intent, location) : Promise.resolve([]),
+    amapKey ? fetchAmapPlaces(amapKey, intent, location) : Promise.resolve([]),
   ]);
 
   const places = mergePlaces(results.flatMap((result) => (result.status === "fulfilled" ? result.value : [])), intent, budget);
@@ -154,9 +160,10 @@ export async function getSourceDiagnosticsResponse(env: Record<string, string | 
   const intent = normalizeIntent(params.get("intent"));
   const location = params.get("location") || "116.397428,39.90923";
   const budget = Number(params.get("budget") ?? "0");
+  const amapKey = getAmapKey(env);
 
   const diagnostics = await Promise.all([
-    diagnoseSource("amap", env.AMAP_WEB_SERVICE_KEY, () => fetchAmapPlaces(env.AMAP_WEB_SERVICE_KEY!, intent, location), intent, budget),
+    diagnoseSource("amap", amapKey, () => fetchAmapPlaces(amapKey!, intent, location), intent, budget),
   ]);
 
   return {
@@ -313,6 +320,7 @@ function placesPlugin(config: { amapKey?: string }): Plugin {
 }
 
 function statusPlugin(env: Record<string, string>): Plugin {
+  const amapKey = getAmapKey(env);
   return {
     name: "nearby-agent-status",
     configureServer(server) {
@@ -320,7 +328,7 @@ function statusPlugin(env: Record<string, string>): Plugin {
         response.setHeader("Content-Type", "application/json; charset=utf-8");
         response.end(
           JSON.stringify({
-            amap: Boolean(env.AMAP_WEB_SERVICE_KEY),
+            amap: Boolean(amapKey),
             tavily: Boolean(env.TAVILY_API_KEY),
             bing: Boolean(env.BING_SEARCH_KEY),
             exa: Boolean(env.EXA_API_KEY),
