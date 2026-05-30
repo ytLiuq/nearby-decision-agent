@@ -904,18 +904,19 @@ input:focus {
 
 .recommendation-list {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
 
 .place-card {
   display: grid;
   grid-template-columns: 42px 1fr;
-  gap: 12px;
+  gap: 14px;
   align-items: start;
-  padding: 16px;
+  padding: 22px;
   border: 1px solid var(--hairline);
   border-radius: 12px;
   background: var(--canvas);
+  box-shadow: 0 1px 3px rgba(20, 20, 19, 0.06);
 }
 
 .rank {
@@ -932,6 +933,12 @@ input:focus {
 .place-card p {
   margin-bottom: 10px;
   color: var(--muted);
+}
+
+.place-card > div:last-child {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
 }
 
 .recommendation-detail {
@@ -954,6 +961,16 @@ input:focus {
 
 .compact-recommendation-detail {
   margin-bottom: 10px;
+}
+
+.review-block {
+  display: grid;
+  gap: 10px;
+}
+
+.review-block > strong {
+  color: var(--ink);
+  font-size: 0.92rem;
 }
 
 .compact-meta {
@@ -1067,15 +1084,14 @@ input:focus {
 }
 
 .compact-source-links {
-  display: flex;
-  flex-wrap: wrap;
-  margin-bottom: 10px;
+  display: grid;
+  margin-bottom: 0;
 }
 
 .compact-source-links a {
-  display: inline-flex;
-  width: auto;
-  padding: 7px 9px;
+  display: grid;
+  width: 100%;
+  padding: 9px 10px;
 }
 
 @media (max-width: 920px) {

@@ -234,8 +234,8 @@ export async function getEnrichmentResponse(env: Record<string, string | undefin
     };
   }
 
-  const enrichments = [];
-  for (const place of places.slice(0, 4)) {
+  const enrichments = await Promise.all(
+    places.slice(0, 6).map(async (place) => {
     const webEnrichments = await Promise.allSettled([
       config.tavilyApiKey ? enrichWithTavily(place, config.tavilyApiKey, body.input?.prompt) : Promise.resolve(undefined),
       config.bingApiKey ? enrichWithBing(place, config.bingApiKey, body.input?.prompt) : Promise.resolve(undefined),
@@ -245,8 +245,9 @@ export async function getEnrichmentResponse(env: Record<string, string | undefin
       .filter((result): result is PromiseFulfilledResult<Enrichment | undefined> => result.status === "fulfilled")
       .map((result) => result.value)
       .filter(Boolean) as Enrichment[];
-    enrichments.push(mergeManyEnrichments(place, valid) ?? mockEnrichment(place));
-  }
+      return mergeManyEnrichments(place, valid) ?? mockEnrichment(place);
+    }),
+  );
 
   const enabled = [
     config.tavilyApiKey ? "Tavily" : "",

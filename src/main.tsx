@@ -351,26 +351,7 @@ function App() {
             </div>
 
             <div className="best-card">
-              <div className="meta-row">
-                <span>
-                  <MapPin size={15} />
-                  {best.distanceMinutes} 分钟
-                </span>
-                <span>
-                  <Wallet size={15} />
-                  {best.avgPrice ? `人均 ${best.avgPrice}` : "价格待补充"}
-                </span>
-                <span>
-                  <Clock3 size={15} />
-                  到 {best.openUntil}
-                </span>
-                {weather ? (
-                  <span>
-                    <CloudSun size={15} />
-                    {weather.condition} {weather.temperature}°C
-                  </span>
-                ) : null}
-              </div>
+              <PlaceMeta place={best} weather={weather} />
               <RecommendationDetails place={best} decision={agentDecision} />
               <ReviewLinks place={best} />
             </div>
@@ -381,13 +362,9 @@ function App() {
                   <div className="rank">{index + 2}</div>
                   <div>
                     <h3>{place.name}</h3>
-                    <RecommendationDetails place={place} compact />
-                    <ReviewLinks place={place} compact />
-                    <div className="compact-meta">
-                      <span>{place.distanceMinutes} 分钟</span>
-                      <span>{place.avgPrice ? `人均 ${place.avgPrice}` : "价格待补充"}</span>
-                      <span>{place.rating}</span>
-                    </div>
+                    <PlaceMeta place={place} weather={weather} />
+                    <RecommendationDetails place={place} />
+                    <ReviewLinks place={place} />
                   </div>
                 </article>
               ))}
@@ -398,6 +375,31 @@ function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function PlaceMeta({ place, weather }: { place: Place; weather?: WeatherContext }) {
+  return (
+    <div className="meta-row">
+      <span>
+        <MapPin size={15} />
+        {place.distanceMinutes} 分钟
+      </span>
+      <span>
+        <Wallet size={15} />
+        {place.avgPrice ? `人均 ${place.avgPrice}` : "价格待补充"}
+      </span>
+      <span>
+        <Clock3 size={15} />
+        到 {place.openUntil}
+      </span>
+      {weather ? (
+        <span>
+          <CloudSun size={15} />
+          {weather.condition} {weather.temperature}°C
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -414,9 +416,9 @@ function RecommendationDetails({ place, decision, compact = false }: { place: Pl
       </p>
       <p>
         <strong>推荐理由</strong>
-        {visibleReasons.slice(0, compact ? 2 : 4).join("；")}
+        {visibleReasons.slice(0, 4).join("；") || "和你描述的需求匹配。"}
       </p>
-      {!compact && place.enrichment?.summary ? (
+      {place.enrichment?.summary ? (
         <p>
           <strong>口碑参考</strong>
           {place.enrichment.summary}
@@ -439,14 +441,17 @@ function ReviewLinks({ place, compact = false }: { place: Place; compact?: boole
   const links = [...(place.enrichment?.links ?? []), ...buildReviewSearchLinks(place)].slice(0, compact ? 3 : 6);
 
   return (
-    <div className={compact ? "source-links compact-source-links" : "source-links"}>
-      {links.map((link) => (
-        <a href={link.url} key={`${place.id}-${link.url}`} rel="noreferrer" target="_blank">
-          <span>{platformLabels[link.platform]}</span>
-          {!compact ? <small>{link.title}</small> : null}
-          <ExternalLink size={14} />
-        </a>
-      ))}
+    <div className="review-block">
+      <strong>口碑参考</strong>
+      <div className={compact ? "source-links compact-source-links" : "source-links"}>
+        {links.map((link) => (
+          <a href={link.url} key={`${place.id}-${link.url}`} rel="noreferrer" target="_blank">
+            <span>{platformLabels[link.platform]}</span>
+            <small>{link.title}</small>
+            <ExternalLink size={14} />
+          </a>
+        ))}
+      </div>
     </div>
   );
 }
