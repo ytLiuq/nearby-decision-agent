@@ -495,16 +495,17 @@ input:focus {
   overflow: hidden;
   min-height: 260px;
   padding: 0;
-  border: 1px solid var(--surface-dark-elevated);
+  border: 1px solid rgba(24, 23, 21, 0.72);
   border-radius: 12px;
   color: inherit;
   background:
-    radial-gradient(circle at 22% 24%, rgba(204, 120, 92, 0.28), transparent 28%),
-    radial-gradient(circle at 78% 62%, rgba(232, 165, 90, 0.18), transparent 26%),
-    linear-gradient(90deg, rgba(250, 249, 245, 0.08) 1px, transparent 1px),
-    linear-gradient(rgba(250, 249, 245, 0.08) 1px, transparent 1px),
+    radial-gradient(circle at 48% 47%, rgba(250, 249, 245, 0.18), transparent 0 52px, rgba(250, 249, 245, 0.06) 53px 112px, transparent 113px),
+    radial-gradient(circle at 26% 30%, rgba(204, 120, 92, 0.24), transparent 26%),
+    radial-gradient(circle at 73% 66%, rgba(232, 165, 90, 0.14), transparent 24%),
+    linear-gradient(122deg, transparent 0 39%, rgba(250, 249, 245, 0.08) 39% 42%, transparent 42%),
+    linear-gradient(28deg, transparent 0 48%, rgba(250, 249, 245, 0.06) 48% 51%, transparent 51%),
     var(--surface-dark);
-  background-size: 54px 54px;
+  box-shadow: inset 0 0 0 1px rgba(250, 249, 245, 0.05);
 }
 
 .map-surface.is-clickable {
@@ -518,18 +519,6 @@ input:focus {
 
 .map-surface.expanded {
   min-height: 420px;
-}
-
-.map-frame {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  width: 100%;
-  height: 100%;
-  border: 0;
-  filter: saturate(0.82) contrast(0.92);
-  opacity: 0.68;
-  pointer-events: none;
 }
 
 .map-empty {
@@ -578,27 +567,35 @@ input:focus {
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  border: 1px solid rgba(250, 249, 245, 0.12);
-  border-radius: 12px;
-  padding: 10px 12px;
+  border: 0;
+  padding: 0;
   color: var(--on-dark);
-  background: rgba(24, 23, 21, 0.72);
-  backdrop-filter: blur(10px);
+  background: transparent;
 }
 
 .map-topbar span {
+  border: 1px solid rgba(250, 249, 245, 0.12);
+  border-radius: 999px;
+  padding: 8px 11px;
   color: var(--on-dark-soft);
+  background: rgba(24, 23, 21, 0.66);
   font-size: 0.78rem;
   font-weight: 700;
-  text-transform: uppercase;
+  backdrop-filter: blur(10px);
 }
 
 .map-topbar strong {
   overflow: hidden;
-  max-width: 62%;
+  max-width: 50%;
+  border: 1px solid rgba(250, 249, 245, 0.12);
+  border-radius: 999px;
+  padding: 8px 12px;
+  color: var(--on-dark);
+  background: rgba(24, 23, 21, 0.66);
   font-size: 0.9rem;
   text-overflow: ellipsis;
   white-space: nowrap;
+  backdrop-filter: blur(10px);
 }
 
 .map-zone {
@@ -606,10 +603,10 @@ input:focus {
   z-index: 1;
   border: 1px solid rgba(250, 249, 245, 0.1);
   border-radius: 999px;
-  padding: 7px 10px;
-  color: rgba(250, 249, 245, 0.72);
-  background: rgba(37, 35, 32, 0.58);
-  font-size: 0.78rem;
+  padding: 6px 9px;
+  color: rgba(250, 249, 245, 0.48);
+  background: rgba(37, 35, 32, 0.32);
+  font-size: 0.74rem;
   font-weight: 700;
 }
 
@@ -631,8 +628,9 @@ input:focus {
 .map-road {
   position: absolute;
   z-index: 1;
-  background: rgba(250, 249, 245, 0.12);
+  background: rgba(250, 249, 245, 0.14);
   border: 1px solid rgba(250, 249, 245, 0.08);
+  box-shadow: 0 12px 42px rgba(0, 0, 0, 0.16);
 }
 
 .road-a {
@@ -670,7 +668,7 @@ input:focus {
 }
 
 .user-dot {
-  z-index: 2;
+  z-index: 3;
   left: 46%;
   top: 44%;
   width: 44px;
@@ -680,7 +678,7 @@ input:focus {
 }
 
 .place-pin {
-  z-index: 2;
+  z-index: 3;
   width: 36px;
   height: 36px;
   color: #ffffff;
@@ -695,7 +693,7 @@ input:focus {
   position: absolute;
   right: 14px;
   bottom: 14px;
-  z-index: 2;
+  z-index: 4;
   border-radius: 999px;
   padding: 8px 12px;
   color: var(--on-dark);
@@ -708,11 +706,11 @@ input:focus {
   position: absolute;
   left: 14px;
   bottom: 14px;
-  z-index: 2;
+  z-index: 4;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  max-width: calc(100% - 170px);
+  max-width: calc(100% - 190px);
 }
 
 .map-place-strip span {

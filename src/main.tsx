@@ -296,7 +296,6 @@ function App() {
           <div className="map-road road-a" />
           <div className="map-road road-b" />
           <div className="map-road road-c" />
-          {mapEmbedUrl ? <iframe className="map-frame" title="当前位置附近地图" src={mapEmbedUrl} loading="lazy" /> : null}
           {!mapEmbedUrl ? <div className="map-empty">允许定位后，这里会显示你附近的地图</div> : null}
           <div className="user-dot">你</div>
           {visibleRecommendations.map((place, index) => (
