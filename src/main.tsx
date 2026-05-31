@@ -33,6 +33,8 @@ const platformLabels: Record<ReviewPlatform, string> = {
   other: "网页",
 };
 
+const peopleOptions = [1, 2, 3, 4, 5, 6];
+
 function parseLocation(value: string) {
   const [lngRaw, latRaw] = value.split(",");
   const lng = Number(lngRaw);
@@ -204,14 +206,7 @@ function AMapPreview({
         markerRef.current.forEach((marker) => mapRef.current.remove(marker));
         markerRef.current = [];
 
-        const nextMarkers = [
-          new AMap.Marker({
-            content: '<div class="amap-user-marker">你</div>',
-            offset: new AMap.Pixel(-19, -19),
-            position: [center.lng, center.lat],
-            title: "你的位置",
-          }),
-        ];
+        const nextMarkers: any[] = [];
 
         places.filter(hasPlaceCoordinates).slice(0, 6).forEach((place, index) => {
           const isSelected = selectedPlace?.id === place.id;
@@ -230,7 +225,7 @@ function AMapPreview({
 
         if (hasPlaceCoordinates(selectedPlace)) {
           mapRef.current.setZoomAndCenter(16, [selectedPlace.longitude, selectedPlace.latitude]);
-        } else if (nextMarkers.length > 1) {
+        } else if (nextMarkers.length) {
           mapRef.current.setFitView(nextMarkers, false, [64, 40, 64, 40], 16);
         } else {
           mapRef.current.setZoomAndCenter(15, [center.lng, center.lat]);
@@ -268,7 +263,7 @@ function AMapPreview({
 
 function App() {
   const [prompt, setPrompt] = useState("我们 3 个人，想在附近吃点不太贵、能聊天的");
-  const [people] = useState(3);
+  const [people, setPeople] = useState(3);
   const [budget] = useState(100);
   const [intent, setIntent] = useState<Intent>("dinner");
   const [selectedMoods, setSelectedMoods] = useState<Mood[]>(["chat", "value"]);
@@ -301,6 +296,8 @@ function App() {
   const mapPlace = expandedMapPlace ?? best;
   const mapPreviewPlaces = visibleRecommendations.slice(0, 3);
   const userCoordinates = effectiveInput ? parseLocation(effectiveInput.location) : undefined;
+  const isResultComplete = hasSubmitted && !isLoading;
+  const canShowResults = isResultComplete && hasUsableLocation && Boolean(best);
 
   function toggleMood(mood: Mood) {
     setSelectedMoods((current) =>
@@ -315,6 +312,11 @@ function App() {
     }
 
     setExpandedMapPlace(undefined);
+    setPlaces([]);
+    setWeather(undefined);
+    setAgentDecision(undefined);
+    setIsLoading(true);
+    setStatus("正在为你筛选附近可去的地方...");
     setSubmittedInput(rawInput);
     setShowLocationDialog(false);
   }
@@ -328,6 +330,7 @@ function App() {
         setSource("mock");
         setWeather(undefined);
         setAgentDecision(undefined);
+        setIsLoading(false);
         setStatus("填写需求并点击确定后，我会开始查找附近推荐。");
         return;
       }
@@ -337,6 +340,7 @@ function App() {
         setSource("mock");
         setWeather(undefined);
         setAgentDecision(undefined);
+        setIsLoading(false);
         setStatus("请先允许定位，或输入经纬度。拿到位置后，推荐和地图才会按你附近刷新。");
         return;
       }
@@ -512,6 +516,22 @@ function App() {
         </div>
 
         <div className="tag-section">
+          <p>几个人</p>
+          <div className="people-grid">
+            {peopleOptions.map((option) => (
+              <button
+                type="button"
+                key={option}
+                className={people === option ? "active" : ""}
+                onClick={() => setPeople(option)}
+              >
+                {option} 人
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="tag-section">
           <p>偏好</p>
           <div className="mood-grid">
             {moodOptions.map((option) => (
@@ -564,14 +584,14 @@ function App() {
             <p>确认需求和位置后，我再开始查找附近推荐。</p>
           </div>
         ) : null}
-        {hasSubmitted && isLoading ? (
+        {hasSubmitted && !isResultComplete ? (
           <div className="loading-panel" role="status" aria-live="polite">
             <span className="loading-spinner" />
             <strong>正在更新附近推荐</strong>
             <p>正在读取位置、地点、天气和口碑信息。</p>
           </div>
         ) : null}
-        {hasSubmitted ? (
+        {canShowResults ? (
           <>
             <div className={`map-surface ${expandedMapPlace ? "expanded" : ""}`}>
           <AMapPreview
@@ -617,12 +637,10 @@ function App() {
           ) : null}
         </div>
 
-        {best ? (
-          <>
             <div className="answer-header">
               <div>
                 <p className="eyebrow">首选推荐</p>
-                <h2>{best.name}</h2>
+                <h2>{best!.name}</h2>
               </div>
               <div className="score-badge">
                 <Star size={16} />
@@ -631,9 +649,9 @@ function App() {
             </div>
 
             <div className="best-card">
-              <PlaceMeta place={best} weather={weather} />
-              <RecommendationDetails place={best} decision={agentDecision} />
-              <ReviewLinks place={best} />
+              <PlaceMeta place={best!} weather={weather} />
+              <RecommendationDetails place={best!} decision={agentDecision} />
+              <ReviewLinks place={best!} />
             </div>
 
             <div className="recommendation-list">
@@ -650,11 +668,8 @@ function App() {
               ))}
             </div>
           </>
-        ) : (
-          <div className="best-card">还没有找到可推荐的地点。</div>
-        )}
-          </>
         ) : null}
+        {isResultComplete && !best ? <div className="empty-results">还没有找到可推荐的地点。</div> : null}
       </section>
     </main>
   );
