@@ -117,7 +117,7 @@ function scorePlace(place: Place, intent: Intent, moodSet: Set<Mood>, people: nu
 
   if (place.source === "amap" || place.source === "merged") {
     score += 4;
-    reasons.push("来自实时周边 POI");
+    reasons.push("来自实时周边地点");
   }
 
   if (place.enrichment?.source === "tavily" || place.enrichment?.source === "mixed") {

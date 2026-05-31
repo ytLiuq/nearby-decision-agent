@@ -11,12 +11,13 @@ import {
   Wallet,
   X,
 } from "lucide-react";
-import { getEffectiveInput, recommendPlaces } from "./agent/recommender";
+import { getEffectiveInput, intentOptions, moodOptions, recommendPlaces } from "./agent/recommender";
 import { fetchAgentDecision, fetchNearbyPlaces, fetchReviewEnrichments, fetchWeather } from "./data/placesClient";
 import { mockPlaces } from "./data/mockPlaces";
 import type {
   AgentDecision,
   DecisionInput,
+  Intent,
   Mood,
   Place,
   PlaceSource,
@@ -72,6 +73,10 @@ function getAmapSecurityCode() {
   return getClientEnv("VITE_AMAP_SECURITY_JS_CODE") ?? getClientEnv("VITE_AMAP_JS_SECURITY_CODE") ?? "";
 }
 
+function getAmapPlugins() {
+  return ["AMap.Scale", "AMap.ToolBar", "AMap.Convertor"].join(",");
+}
+
 function loadAmapSdk() {
   if (window.AMap) return Promise.resolve(window.AMap);
   if (amapLoader) return amapLoader;
@@ -93,9 +98,7 @@ function loadAmapSdk() {
     const script = document.createElement("script");
     script.id = "amap-js-api";
     script.async = true;
-    script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(
-      key,
-    )}&plugin=AMap.Scale,AMap.ToolBar`;
+    script.src = `https://webapi.amap.com/maps?v=2.0&key=${encodeURIComponent(key)}&plugin=${getAmapPlugins()}`;
     script.onload = () => resolve(window.AMap);
     script.onerror = () => {
       amapLoader = undefined;
@@ -109,6 +112,21 @@ function loadAmapSdk() {
 
 function hasPlaceCoordinates(place: Place | undefined): place is Place & { longitude: number; latitude: number } {
   return Number.isFinite(place?.longitude) && Number.isFinite(place?.latitude);
+}
+
+function convertGpsToAmap(AMap: any, coords: Coordinates): Promise<Coordinates> {
+  if (!AMap?.convertFrom) return Promise.resolve(coords);
+
+  return new Promise((resolve) => {
+    AMap.convertFrom([coords.lng, coords.lat], "gps", (status: string, result: any) => {
+      const point = result?.locations?.[0];
+      if (status === "complete" && point) {
+        resolve({ lng: point.lng, lat: point.lat });
+        return;
+      }
+      resolve(coords);
+    });
+  });
 }
 
 function AMapPreview({
@@ -222,7 +240,8 @@ function App() {
   const [prompt, setPrompt] = useState("我们 3 个人，想在附近吃点不太贵、能聊天的");
   const [people] = useState(3);
   const [budget] = useState(100);
-  const [selectedMoods] = useState<Mood[]>([]);
+  const [intent, setIntent] = useState<Intent>("dinner");
+  const [selectedMoods, setSelectedMoods] = useState<Mood[]>(["chat", "value"]);
   const [location, setLocation] = useState("");
   const [places, setPlaces] = useState<Place[]>(mockPlaces);
   const [source, setSource] = useState<PlaceSource>("mock");
@@ -236,8 +255,8 @@ function App() {
   const [showLocationDialog, setShowLocationDialog] = useState(true);
 
   const rawInput: DecisionInput = useMemo(
-    () => ({ prompt, people, budget, intent: "dinner", moods: selectedMoods, location }),
-    [budget, location, people, prompt, selectedMoods],
+    () => ({ prompt, people, budget, intent, moods: selectedMoods, location }),
+    [budget, intent, location, people, prompt, selectedMoods],
   );
   const effectiveInput = useMemo(() => getEffectiveInput(rawInput), [rawInput]);
   const hasUsableLocation = Boolean(parseLocation(effectiveInput.location));
@@ -247,6 +266,12 @@ function App() {
   const mapPlace = expandedMapPlace ?? best;
   const mapPreviewPlaces = visibleRecommendations.slice(0, 3);
   const userCoordinates = parseLocation(effectiveInput.location);
+
+  function toggleMood(mood: Mood) {
+    setSelectedMoods((current) =>
+      current.includes(mood) ? current.filter((item) => item !== mood) : [...current, mood],
+    );
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -309,20 +334,43 @@ function App() {
     }
 
     setIsLocating(true);
-    setLocationMessage("正在请求浏览器定位权限...");
+    setLocationMessage("正在请求定位权限。若浏览器弹窗出现，请选择允许。");
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const nextLocation = `${position.coords.longitude.toFixed(6)},${position.coords.latitude.toFixed(6)}`;
+      async (position) => {
+        const gpsLocation = {
+          lng: Number(position.coords.longitude.toFixed(6)),
+          lat: Number(position.coords.latitude.toFixed(6)),
+        };
+        let amapLocation = gpsLocation;
+
+        try {
+          const AMap = await loadAmapSdk();
+          amapLocation = await convertGpsToAmap(AMap, gpsLocation);
+        } catch {
+          amapLocation = gpsLocation;
+        }
+
+        const nextLocation = `${amapLocation.lng.toFixed(6)},${amapLocation.lat.toFixed(6)}`;
+        const accuracyText = Number.isFinite(position.coords.accuracy)
+          ? `浏览器定位精度约 ${Math.round(position.coords.accuracy)} 米。`
+          : "";
         setLocation(nextLocation);
-        setLocationMessage("已定位到当前位置，将用这组经纬度查询附近地点。");
+        setExpandedMapPlace(undefined);
+        setLocationMessage(`已定位并校准为高德坐标。${accuracyText}`);
         setShowLocationDialog(false);
         setIsLocating(false);
       },
-      () => {
-        setLocationMessage("定位失败。请允许浏览器定位，或手动输入经纬度。");
+      (error) => {
+        const reason =
+          error.code === error.PERMISSION_DENIED
+            ? "定位权限被拒绝。请在浏览器地址栏允许位置权限，或手动输入经纬度。"
+            : error.code === error.TIMEOUT
+              ? "定位超时。可以再试一次，或先手动输入经纬度。"
+              : "定位失败。请检查浏览器位置权限，或手动输入经纬度。";
+        setLocationMessage(reason);
         setIsLocating(false);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 60000 },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 30000 },
     );
   }
 
@@ -333,7 +381,7 @@ function App() {
           <div className="location-modal-card">
             <p className="eyebrow">Location</p>
             <h2 id="location-modal-title">先确定你的位置</h2>
-            <p>这个应用需要经纬度来拉取你附近的 POI 和地图。点击“使用当前位置”后，浏览器会弹出定位授权。</p>
+            <p>这个应用需要你附近的位置来查找可去的地方和显示地图。点击“使用当前位置”后，浏览器会弹出定位授权。</p>
             <div className="location-modal-actions">
               <button type="button" className="primary-action" onClick={useBrowserLocation} disabled={isLocating}>
                 {isLocating ? "定位中..." : "使用当前位置"}
@@ -343,6 +391,7 @@ function App() {
                 className="secondary-action"
                 onClick={() => {
                   setLocation("116.397428,39.90923");
+                  setExpandedMapPlace(undefined);
                   setLocationMessage("已使用北京示例坐标。你也可以手动改成自己的经纬度。");
                   setShowLocationDialog(false);
                 }}
@@ -370,20 +419,54 @@ function App() {
           <textarea
             value={prompt}
             onChange={(event) => setPrompt(event.target.value)}
-            placeholder="例如：我们 3 个人在东城区，想找一家人均 100 左右、适合聊天的餐厅"
+            placeholder="例如：我们 3 个人，想找一个附近、预算合适、适合聊天的地方"
           />
         </label>
+
+        <div className="tag-section">
+          <p>想做什么</p>
+          <div className="intent-grid">
+            {intentOptions.map((option) => (
+              <button
+                type="button"
+                key={option.id}
+                className={intent === option.id ? "active" : ""}
+                onClick={() => setIntent(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="tag-section">
+          <p>偏好</p>
+          <div className="mood-grid">
+            {moodOptions.map((option) => (
+              <button
+                type="button"
+                key={option.id}
+                className={selectedMoods.includes(option.id) ? "active" : ""}
+                onClick={() => toggleMood(option.id)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="prompt-box">
           <span>
             <MapPin size={16} />
-            你在哪儿？输入经纬度或点击定位
+            你在哪儿？点击定位或输入高德坐标
           </span>
           <div className="location-row">
             <input
               value={location}
               onChange={(event) => {
                 setLocation(event.target.value);
+                setExpandedMapPlace(undefined);
+                setLocationMessage(parseLocation(event.target.value) ? "已使用你输入的位置。" : "请输入“经度,纬度”，例如 116.397428,39.90923。");
               }}
               placeholder="例如：116.397428,39.90923"
             />
@@ -545,7 +628,10 @@ function toUserReason(reason: string) {
   if (reason.includes("类型匹配")) return "和你描述的需求匹配";
   if (reason.includes("预算匹配")) return "预算上比较合适";
   if (reason.includes("人数适配")) return "适合当前人数";
+  if (reason.includes("人数合适")) return "适合当前人数";
   if (reason.includes("偏好标签")) return "氛围和你想要的感觉接近";
+  if (reason.includes("口碑标签")) return "公开口碑里也有相近线索";
+  if (reason.includes("实时周边地点")) return "位置在你附近";
   return reason;
 }
 
