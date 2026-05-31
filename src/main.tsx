@@ -578,10 +578,17 @@ function App() {
 
       <section className="results-panel">
         {!hasSubmitted ? (
-          <div className="loading-panel idle-loading-panel" role="status" aria-live="polite">
-            <span className="loading-spinner" />
-            <strong>等待确定</strong>
-            <p>确认需求和位置后，我再开始查找附近推荐。</p>
+          <div className="empty-state-panel" role="status" aria-live="polite">
+            <span className="empty-state-icon">
+              <MapPin size={22} />
+            </span>
+            <strong>先选择你的需求</strong>
+            <p>在左侧确认想做什么、几个人、偏好和位置，然后点击“确定，开始推荐”。</p>
+            <div className="empty-state-steps">
+              <span>1 选择</span>
+              <span>2 定位</span>
+              <span>3 确定</span>
+            </div>
           </div>
         ) : null}
         {hasSubmitted && !isResultComplete ? (
