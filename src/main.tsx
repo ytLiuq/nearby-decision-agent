@@ -74,7 +74,7 @@ function getAmapSecurityCode() {
 }
 
 function getAmapPlugins() {
-  return ["AMap.Scale", "AMap.ToolBar", "AMap.Convertor"].join(",");
+  return ["AMap.Scale", "AMap.ToolBar", "AMap.Geolocation"].join(",");
 }
 
 function loadAmapSdk() {
@@ -127,6 +127,36 @@ function convertGpsToAmap(AMap: any, coords: Coordinates): Promise<Coordinates> 
       resolve(coords);
     });
   });
+}
+
+function getAmapCurrentPosition(): Promise<{ coords: Coordinates; accuracy?: number }> {
+  return loadAmapSdk().then(
+    (AMap) =>
+      new Promise((resolve, reject) => {
+        if (!AMap?.Geolocation) {
+          reject(new Error("AMap Geolocation is unavailable"));
+          return;
+        }
+
+        const geolocation = new AMap.Geolocation({
+          convert: true,
+          enableHighAccuracy: true,
+          timeout: 15000,
+        });
+
+        geolocation.getCurrentPosition((status: string, result: any) => {
+          const position = result?.position;
+          if (status === "complete" && position) {
+            resolve({
+              accuracy: result.accuracy,
+              coords: { lng: Number(position.lng), lat: Number(position.lat) },
+            });
+            return;
+          }
+          reject(new Error(result?.message ?? "AMap geolocation failed"));
+        });
+      }),
+  );
 }
 
 function AMapPreview({
@@ -243,6 +273,7 @@ function App() {
   const [intent, setIntent] = useState<Intent>("dinner");
   const [selectedMoods, setSelectedMoods] = useState<Mood[]>(["chat", "value"]);
   const [location, setLocation] = useState("");
+  const [submittedInput, setSubmittedInput] = useState<DecisionInput | undefined>();
   const [places, setPlaces] = useState<Place[]>(mockPlaces);
   const [source, setSource] = useState<PlaceSource>("mock");
   const [isLoading, setIsLoading] = useState(false);
@@ -258,14 +289,18 @@ function App() {
     () => ({ prompt, people, budget, intent, moods: selectedMoods, location }),
     [budget, intent, location, people, prompt, selectedMoods],
   );
-  const effectiveInput = useMemo(() => getEffectiveInput(rawInput), [rawInput]);
-  const hasUsableLocation = Boolean(parseLocation(effectiveInput.location));
-  const recommendations = useMemo(() => recommendPlaces(places, effectiveInput, weather), [effectiveInput, places, weather]);
-  const visibleRecommendations = hasUsableLocation ? recommendations : [];
+  const effectiveInput = useMemo(() => (submittedInput ? getEffectiveInput(submittedInput) : undefined), [submittedInput]);
+  const hasSubmitted = Boolean(effectiveInput);
+  const hasUsableLocation = Boolean(effectiveInput && parseLocation(effectiveInput.location));
+  const recommendations = useMemo(
+    () => (effectiveInput ? recommendPlaces(places, effectiveInput, weather) : []),
+    [effectiveInput, places, weather],
+  );
+  const visibleRecommendations = hasSubmitted && hasUsableLocation ? recommendations : [];
   const best = visibleRecommendations[0];
   const mapPlace = expandedMapPlace ?? best;
   const mapPreviewPlaces = visibleRecommendations.slice(0, 3);
-  const userCoordinates = parseLocation(effectiveInput.location);
+  const userCoordinates = effectiveInput ? parseLocation(effectiveInput.location) : undefined;
 
   function toggleMood(mood: Mood) {
     setSelectedMoods((current) =>
@@ -273,10 +308,30 @@ function App() {
     );
   }
 
+  function submitDecision() {
+    if (!parseLocation(location)) {
+      setLocationMessage("请先定位，或输入“经度,纬度”后再确定。");
+      return;
+    }
+
+    setExpandedMapPlace(undefined);
+    setSubmittedInput(rawInput);
+    setShowLocationDialog(false);
+  }
+
   useEffect(() => {
     const controller = new AbortController();
 
     async function loadPlaces() {
+      if (!effectiveInput) {
+        setPlaces([]);
+        setSource("mock");
+        setWeather(undefined);
+        setAgentDecision(undefined);
+        setStatus("填写需求并点击确定后，我会开始查找附近推荐。");
+        return;
+      }
+
       if (!parseLocation(effectiveInput.location)) {
         setPlaces(mockPlaces);
         setSource("mock");
@@ -334,7 +389,24 @@ function App() {
     }
 
     setIsLocating(true);
-    setLocationMessage("正在请求定位权限。若浏览器弹窗出现，请选择允许。");
+    setLocationMessage("正在请求高德定位。若浏览器弹窗出现，请选择允许。");
+    getAmapCurrentPosition()
+      .then(({ coords, accuracy }) => {
+        const nextLocation = `${coords.lng.toFixed(6)},${coords.lat.toFixed(6)}`;
+        const accuracyText = Number.isFinite(accuracy) ? `定位精度约 ${Math.round(accuracy ?? 0)} 米。` : "";
+        setLocation(nextLocation);
+        setExpandedMapPlace(undefined);
+        setLocationMessage(`已使用高德定位坐标。${accuracyText}`);
+        setShowLocationDialog(false);
+        setIsLocating(false);
+      })
+      .catch(() => {
+        useBrowserFallbackLocation();
+      });
+  }
+
+  function useBrowserFallbackLocation() {
+    setLocationMessage("高德定位暂不可用，正在尝试浏览器定位。");
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const gpsLocation = {
@@ -356,7 +428,7 @@ function App() {
           : "";
         setLocation(nextLocation);
         setExpandedMapPlace(undefined);
-        setLocationMessage(`已定位并校准为高德坐标。${accuracyText}`);
+        setLocationMessage(`已用浏览器定位并校准为高德坐标。${accuracyText}`);
         setShowLocationDialog(false);
         setIsLocating(false);
       },
@@ -477,18 +549,31 @@ function App() {
           {locationMessage ? <small className="field-hint">{locationMessage}</small> : null}
         </div>
 
+        <button type="button" className="confirm-action" onClick={submitDecision} disabled={isLocating}>
+          确定，开始推荐
+        </button>
+
         {!isLoading && !hasUsableLocation ? <div className="agent-state">{status}</div> : null}
       </section>
 
       <section className="results-panel">
-        {isLoading ? (
+        {!hasSubmitted ? (
+          <div className="loading-panel idle-loading-panel" role="status" aria-live="polite">
+            <span className="loading-spinner" />
+            <strong>等待确定</strong>
+            <p>确认需求和位置后，我再开始查找附近推荐。</p>
+          </div>
+        ) : null}
+        {hasSubmitted && isLoading ? (
           <div className="loading-panel" role="status" aria-live="polite">
             <span className="loading-spinner" />
             <strong>正在更新附近推荐</strong>
             <p>正在读取位置、地点、天气和口碑信息。</p>
           </div>
         ) : null}
-        <div className={`map-surface ${expandedMapPlace ? "expanded" : ""}`}>
+        {hasSubmitted ? (
+          <>
+            <div className={`map-surface ${expandedMapPlace ? "expanded" : ""}`}>
           <AMapPreview
             center={userCoordinates}
             places={visibleRecommendations}
@@ -568,6 +653,8 @@ function App() {
         ) : (
           <div className="best-card">还没有找到可推荐的地点。</div>
         )}
+          </>
+        ) : null}
       </section>
     </main>
   );

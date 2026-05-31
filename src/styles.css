@@ -210,6 +210,25 @@ h3 {
   background: var(--canvas);
 }
 
+.confirm-action {
+  min-height: 48px;
+  border: 1px solid var(--primary);
+  border-radius: 8px;
+  color: #ffffff;
+  background: var(--primary);
+  font-weight: 800;
+}
+
+.confirm-action:hover,
+.confirm-action:focus-visible {
+  background: var(--primary-active);
+}
+
+.confirm-action:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
 .prompt-box {
   display: grid;
   gap: 10px;
@@ -435,6 +454,10 @@ input:focus {
 .loading-panel p {
   margin: 0;
   color: var(--muted);
+}
+
+.idle-loading-panel {
+  background: rgba(250, 249, 245, 0.86);
 }
 
 .loading-spinner {
